@@ -1,12 +1,19 @@
 #!/bin/bash
-# Elasticsearch 인덱스 생성 및 샘플 데이터 등록 스크립트
+# Elasticsearch 인덱스 생성 및 샘플 데이터 등록 스크립트 (운영 보안 설정 반영)
 
-ES_HOST="http://localhost:9200"
+# .env 파일이 있으면 로드
+if [ -f .env ]; then
+  export $(grep -v '^#' .env | xargs)
+fi
+
+ES_HOST="http://localhost:${ES_PORT:-9200}"
+ES_USER="elastic"
+ES_PASS="${ELASTIC_PASSWORD:-AgoraElasticSecret@Passw0rd!2026}"
 INDEX_NAME="canvas"
 
 echo "=== 1. Elasticsearch 인덱스 ($INDEX_NAME) 매핑 생성 ==="
 
-curl -X PUT "$ES_HOST/$INDEX_NAME" \
+curl -u "$ES_USER:$ES_PASS" -X PUT "$ES_HOST/$INDEX_NAME" \
      -H 'Content-Type: application/json' \
      -d '{
   "settings": {
@@ -82,7 +89,7 @@ curl -X PUT "$ES_HOST/$INDEX_NAME" \
 
 echo -e "\n\n=== 2. 샘플 캔버스 도큐먼트 등록 (ID: 1) ==="
 
-curl -X POST "$ES_HOST/$INDEX_NAME/_doc/1" \
+curl -u "$ES_USER:$ES_PASS" -X POST "$ES_HOST/$INDEX_NAME/_doc/1" \
      -H 'Content-Type: application/json' \
      -d '{
   "canvas-name": "Agora Architecture Canvas",
@@ -111,5 +118,5 @@ curl -X POST "$ES_HOST/$INDEX_NAME/_doc/1" \
 }'
 
 echo -e "\n\n=== 3. 등록된 도큐먼트 조회 ==="
-curl -X GET "$ES_HOST/$INDEX_NAME/_doc/1?pretty"
+curl -u "$ES_USER:$ES_PASS" -X GET "$ES_HOST/$INDEX_NAME/_doc/1?pretty"
 echo ""

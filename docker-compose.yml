@@ -5,44 +5,87 @@ services:
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
     container_name: agora-elasticsearch
+    restart: unless-stopped
     environment:
       - discovery.type=single-node
-      - xpack.security.enabled=false # 개발 및 로컬 편의를 위해 보안 비활성화 (운영 시 활성화 권장)
-      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - xpack.security.enabled=true
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD:-AgoraElasticSecret@Passw0rd!2026}
+      - "ES_JAVA_OPTS=-Xms${ES_JAVA_MIN_MEM:-1g} -Xmx${ES_JAVA_MAX_MEM:-2g}"
+      - TZ=${TIMEZONE:-Asia/Seoul}
     ports:
-      - "9200:9200"
-      - "9300:9300"
+      # 외부 직접 노출 방지: 127.0.0.1로 바인딩하거나 리버스 프록시/백엔드 내부 네트워크 사용 권장
+      - "127.0.0.1:${ES_PORT:-9200}:9200"
     volumes:
       - es_data:/usr/share/elasticsearch/data
     networks:
       - agora-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -u elastic:${ELASTIC_PASSWORD:-AgoraElasticSecret@Passw0rd!2026} -s -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
   # 2. Redis Stack (Redis + RedisJSON + RediSearch + RedisInsight)
   redis-stack:
     image: redis/redis-stack:latest
     container_name: agora-redis-stack
+    restart: unless-stopped
+    command: ["redis-stack-server", "--requirepass", "${REDIS_PASSWORD:-AgoraRedisSecret@Passw0rd!2026}"]
+    environment:
+      - TZ=${TIMEZONE:-Asia/Seoul}
     ports:
-      - "6379:6379" # Redis 서버 포트
-      - "8001:8001" # RedisInsight 웹 UI 포트
+      # 외부 직접 노출 방지: 127.0.0.1로 로컬 및 내부망에서만 접속 권장
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+      # RedisInsight GUI는 필요 시 활성화하고, 반드시 127.0.0.1 또는 SSH 터널링으로만 접근
+      - "127.0.0.1:${REDIS_INSIGHT_PORT:-8001}:8001"
     volumes:
       - redis_data:/data
     networks:
       - agora-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a '${REDIS_PASSWORD:-AgoraRedisSecret@Passw0rd!2026}' ping | grep PONG || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
 
   # 3. MS SQL Server 2022
   mssql:
     image: mcr.microsoft.com/mssql/server:2022-latest
     container_name: agora-mssql
+    restart: unless-stopped
     environment:
       - ACCEPT_EULA=Y
-      - MSSQL_SA_PASSWORD=AgoraStrong@Passw0rd # 비밀번호 변경 가능 (대소문자, 숫자, 특수문자 포함 필수)
-      - MSSQL_PID=Developer
+      - MSSQL_SA_PASSWORD=${MSSQL_SA_PASSWORD:-AgoraStrong@Passw0rd!2026}
+      - MSSQL_PID=${MSSQL_PID:-Express} # 상용 서비스 시 라이선스 정책 준수 (Express: 무료 운영용, Developer: 개발 전용)
+      - TZ=${TIMEZONE:-Asia/Seoul}
     ports:
-      - "1433:1433"
+      - "127.0.0.1:${MSSQL_PORT:-1433}:1433"
     volumes:
       - mssql_data:/var/opt/mssql
     networks:
       - agora-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$${MSSQL_SA_PASSWORD:-AgoraStrong@Passw0rd!2026}\" -C -Q \"SELECT 1\" || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
 volumes:
   es_data:

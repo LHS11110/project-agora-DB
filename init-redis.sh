@@ -1,14 +1,17 @@
 #!/bin/bash
-# Redis Stack (RedisJSON + RediSearch) 인덱스 생성 및 샘플 데이터 등록 스크립트
+# Redis Stack (RedisJSON + RediSearch) 인덱스 생성 및 샘플 데이터 등록 스크립트 (보안 적용)
 
-REDIS_HOST="localhost"
-REDIS_PORT="6379"
+if [ -f .env ]; then
+  export $(grep -v '^#' .env | xargs)
+fi
 
-# docker exec 또는 로컬 redis-cli 사용을 고려
-REDIS_CMD="redis-cli -h $REDIS_HOST -p $REDIS_PORT"
+REDIS_HOST="127.0.0.1"
+REDIS_PORT="${REDIS_PORT:-6379}"
+REDIS_PASS="${REDIS_PASSWORD:-AgoraRedisSecret@Passw0rd!2026}"
+
+REDIS_CMD="redis-cli -h $REDIS_HOST -p $REDIS_PORT -a $REDIS_PASS"
 
 echo "=== 1. Redis Stack RediSearch 인덱스 (idx:canvas) 생성 ==="
-# RediSearch FT.CREATE 명령어로 JSON 형식에 대한 검색 인덱스 정의
 $REDIS_CMD FT.CREATE idx:canvas ON JSON PREFIX 1 "canvas:" SCHEMA \
     '$."canvas-name"' AS canvas_name TEXT SORTABLE \
     '$."canvas-id"' AS canvas_id NUMERIC SORTABLE \
@@ -47,5 +50,4 @@ echo -e "\n=== 3. 저장된 JSON 데이터 확인 (JSON.GET) ==="
 $REDIS_CMD JSON.GET canvas:1
 
 echo -e "\n=== 4. RediSearch 검색 쿼리 테스트 (FT.SEARCH) ==="
-# admin이 1000인 캔버스 검색
 $REDIS_CMD FT.SEARCH idx:canvas "@admin:[1000 1000]"
