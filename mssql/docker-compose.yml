@@ -1,0 +1,37 @@
+services:
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: agora-mssql
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - ACCEPT_EULA=Y
+      - MSSQL_SA_PASSWORD=${MSSQL_SA_PASSWORD:-AgoraStrong@Passw0rd!2026}
+      - MSSQL_PID=${MSSQL_PID:-Express} # 상용 서비스 시 라이선스 정책 준수 (Express: 무료 운영용, Developer: 개발 전용)
+      - TZ=${TIMEZONE:-Asia/Seoul}
+    ports:
+      # 외부 직접 노출 방지: 127.0.0.1 바인딩
+      - "127.0.0.1:${MSSQL_PORT:-1433}:1433"
+    volumes:
+      - mssql_data:/var/opt/mssql
+    networks:
+      - agora-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+    healthcheck:
+      test: [ "CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$${MSSQL_SA_PASSWORD:-AgoraStrong@Passw0rd!2026}\" -C -Q \"SELECT 1\" || exit 1" ]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  mssql_data:
+
+networks:
+  agora-net:
+    name: agora-net
