@@ -1,0 +1,35 @@
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE & Editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Environment variables & secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Docker & Database local data / logs
+*.log
+volumes/
+data/
+docker-compose.override.yml
+
+# Temporary files
+scratch/
+tmp/
+*.tmp
+
+*.txt

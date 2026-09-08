@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  # 1. Elasticsearch 8.x
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    container_name: agora-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false # 개발 및 로컬 편의를 위해 보안 비활성화 (운영 시 활성화 권장)
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    networks:
+      - agora-net
+
+  # 2. Redis Stack (Redis + RedisJSON + RediSearch + RedisInsight)
+  redis-stack:
+    image: redis/redis-stack:latest
+    container_name: agora-redis-stack
+    ports:
+      - "6379:6379" # Redis 서버 포트
+      - "8001:8001" # RedisInsight 웹 UI 포트
+    volumes:
+      - redis_data:/data
+    networks:
+      - agora-net
+
+  # 3. MS SQL Server 2022
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: agora-mssql
+    environment:
+      - ACCEPT_EULA=Y
+      - MSSQL_SA_PASSWORD=AgoraStrong@Passw0rd # 비밀번호 변경 가능 (대소문자, 숫자, 특수문자 포함 필수)
+      - MSSQL_PID=Developer
+    ports:
+      - "1433:1433"
+    volumes:
+      - mssql_data:/var/opt/mssql
+    networks:
+      - agora-net
+
+volumes:
+  es_data:
+  redis_data:
+  mssql_data:
+
+networks:
+  agora-net:
+    driver: bridge
