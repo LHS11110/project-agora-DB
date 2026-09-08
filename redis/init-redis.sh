@@ -14,15 +14,20 @@ REDIS_HOST="127.0.0.1"
 REDIS_PORT="${REDIS_PORT:-6379}"
 REDIS_PASS="${REDIS_PASSWORD:-AgoraRedisSecret@Passw0rd!2026}"
 
-REDIS_CMD="redis-cli -h $REDIS_HOST -p $REDIS_PORT -a $REDIS_PASS"
+# 로컬 redis-cli가 있으면 로컬 사용, 없으면 docker exec fallback 사용
+if command -v redis-cli &> /dev/null; then
+  REDIS_CMD="redis-cli -h $REDIS_HOST -p $REDIS_PORT -a $REDIS_PASS"
+else
+  REDIS_CMD="docker exec -i agora-redis-stack redis-cli -a $REDIS_PASS"
+fi
 
 echo "=== 1. Redis Stack RediSearch 인덱스 (idx:canvas) 생성 ==="
 $REDIS_CMD FT.CREATE idx:canvas ON JSON PREFIX 1 "canvas:" SCHEMA \
-    '$."canvas-name"' AS canvas_name TEXT SORTABLE \
-    '$."canvas-id"' AS canvas_id NUMERIC SORTABLE \
-    '$."admin"' AS admin NUMERIC \
-    '$."peoples"[*]' AS peoples NUMERIC \
-    '$."init-group"' AS init_group TAG
+    '$["canvas-name"]' AS canvas_name TEXT SORTABLE \
+    '$["canvas-id"]' AS canvas_id NUMERIC SORTABLE \
+    '$.admin' AS admin NUMERIC \
+    '$.peoples[*]' AS peoples NUMERIC \
+    '$["init-group"]' AS init_group TAG
 
 echo -e "\n=== 2. RedisJSON 샘플 캔버스 데이터 저장 (Key: canvas:1) ==="
 $REDIS_CMD JSON.SET canvas:1 $ '{
