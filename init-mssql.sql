@@ -8,17 +8,34 @@ GO
 USE agora_db;
 GO
 
--- 캔버스 캐시 확인 테이블 생성
+-- 1. Redis Server 등록 테이블 생성 (복합 기본키: redis_ip, redis_port)
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'redis_server')
+BEGIN
+    CREATE TABLE redis_server (
+        redis_ip    VARCHAR(45)   NOT NULL,          -- Redis IP 주소 (IPv4/IPv6 지원)
+        redis_port  VARCHAR(10)   NOT NULL,          -- Redis 포트 번호
+        created_at  DATETIME2     NOT NULL DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT PK_redis_server PRIMARY KEY CLUSTERED (redis_ip, redis_port)
+    );
+END
+GO
+
+-- 2. 캔버스 캐시 확인 테이블 생성
 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'canvas_cache')
 BEGIN
     CREATE TABLE canvas_cache (
         canvas_name NVARCHAR(255) NOT NULL,          -- 캔버스 이름 (기본키)
-        redis_ip    VARCHAR(45)   NULL,              -- Redis IP 주소 (IPv4/IPv6 지원, None 가능)
+        redis_ip    VARCHAR(45)   NULL,              -- Redis IP 주소 (None 가능)
         redis_port  VARCHAR(10)   NULL,              -- Redis 포트 번호 (None 가능)
         is_cached   BIT           NOT NULL DEFAULT 0, -- 캐시 여부 (None 불가능, 0: False, 1: True)
         created_at  DATETIME2     NOT NULL DEFAULT SYSUTCDATETIME(),
         updated_at  DATETIME2     NOT NULL DEFAULT SYSUTCDATETIME(),
-        CONSTRAINT PK_canvas_cache PRIMARY KEY CLUSTERED (canvas_name)
+        CONSTRAINT PK_canvas_cache PRIMARY KEY CLUSTERED (canvas_name),
+        -- 외래키 제약조건: redis_server의 (redis_ip, redis_port) 참조 (서버 삭제 시 NULL 처리)
+        CONSTRAINT FK_canvas_cache_redis_server FOREIGN KEY (redis_ip, redis_port)
+            REFERENCES redis_server (redis_ip, redis_port)
+            ON DELETE SET NULL
+            ON UPDATE CASCADE
     );
 END
 GO
@@ -30,13 +47,26 @@ BEGIN
 END
 GO
 
--- 샘플 데이터 입력 (테스트용)
-INSERT INTO canvas_cache (canvas_name, redis_ip, redis_port, is_cached)
-VALUES 
-    (N'demo-canvas-01', '127.0.0.1', '6379', 1),
-    (N'demo-canvas-02', NULL, NULL, 0);
+-- 3. 샘플 데이터 입력 (테스트용)
+-- (1) Redis 서버 등록
+IF NOT EXISTS (SELECT 1 FROM redis_server WHERE redis_ip = '127.0.0.1' AND redis_port = '6379')
+BEGIN
+    INSERT INTO redis_server (redis_ip, redis_port)
+    VALUES ('127.0.0.1', '6379');
+END
+GO
+
+-- (2) 캔버스 캐시 정보 등록
+IF NOT EXISTS (SELECT 1 FROM canvas_cache WHERE canvas_name = N'demo-canvas-01')
+BEGIN
+    INSERT INTO canvas_cache (canvas_name, redis_ip, redis_port, is_cached)
+    VALUES 
+        (N'demo-canvas-01', '127.0.0.1', '6379', 1),
+        (N'demo-canvas-02', NULL, NULL, 0);
+END
 GO
 
 -- 데이터 확인
+SELECT * FROM redis_server;
 SELECT * FROM canvas_cache;
 GO
