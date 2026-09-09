@@ -7,6 +7,8 @@ services:
       - .env
     command: [ "redis-stack-server", "--requirepass", "${REDIS_PASSWORD:-AgoraRedisSecret@Passw0rd!2026}", "--protected-mode", "no" ]
     environment:
+      - REDIS_USER=${REDIS_USER:-agora_user}
+      - REDIS_USER_PASSWORD=${REDIS_USER_PASSWORD:-AgoraUserSecret@Passw0rd!2026}
       - TZ=${TIMEZONE:-Asia/Seoul}
     ports:
       # 외부 요청 허용: 모든 네트워크 인터페이스(0.0.0.0)에서 접속 허용

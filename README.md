@@ -90,14 +90,13 @@ docker exec -i agora-mssql /opt/mssql-tools18/bin/sqlcmd \
   < mssql/init-mssql.sql
 ```
 
-### (2) Elasticsearch 인덱스 및 매핑 생성
+### (2) Elasticsearch 사용자 생성, 역할 부여 및 인덱스 매핑 생성
 ```bash
 ./elasticsearch/init-elasticsearch.sh
 ```
 
-### (3) Redis Stack 인덱스 생성 및 샘플 데이터 등록
+### (3) Redis Stack ACL 사용자 생성, 인덱스 생성 및 샘플 데이터 등록
 ```bash
-# 컨테이너 내부 redis-cli를 통해 실행
-docker exec -i agora-redis-stack redis-cli -a 'AgoraRedisSecret@Passw0rd!2026' < redis/init-redis.sh
+./redis/init-redis.sh
 ```
-*(또는 로컬에 redis-cli가 설치되어 있는 경우 `./redis/init-redis.sh` 직접 실행)*
+*(로컬에 redis-cli가 없더라도 스크립트 내부에서 자동으로 Docker 컨테이너 명령어로 fallback 실행됩니다.)*

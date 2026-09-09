@@ -9,6 +9,9 @@ services:
       - discovery.type=single-node
       - xpack.security.enabled=true
       - ELASTIC_PASSWORD=${ELASTIC_PASSWORD:-AgoraElasticSecret@Passw0rd!2026}
+      - ES_INDEX=${ES_INDEX:-canvas}
+      - ES_USER_NAME=${ES_USER_NAME:-agora_user}
+      - ES_USER_PASSWORD=${ES_USER_PASSWORD:-AgoraUserSecret@Passw0rd!2026}
       - "ES_JAVA_OPTS=-Xms${ES_JAVA_MIN_MEM:-1g} -Xmx${ES_JAVA_MAX_MEM:-2g}"
       - TZ=${TIMEZONE:-Asia/Seoul}
     ports:
