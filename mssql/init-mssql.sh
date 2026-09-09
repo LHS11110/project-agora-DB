@@ -15,8 +15,13 @@ elif [ -f .env ]; then
   export $(grep -v '^#' .env | xargs)
 fi
 
-MSSQL_HOST="127.0.0.1"
-MSSQL_PORT="${MSSQL_PORT:-1433}"
+MSSQL_RAW_HOST="${MSSQL_EXTERNAL_IP:-${MSSQL_HOST:-127.0.0.1}}"
+if [ "$MSSQL_RAW_HOST" = "0.0.0.0" ]; then
+  MSSQL_HOST="127.0.0.1"
+else
+  MSSQL_HOST="$MSSQL_RAW_HOST"
+fi
+MSSQL_PORT="${MSSQL_EXTERNAL_PORT:-${MSSQL_PORT:-1433}}"
 MSSQL_SA_PASS="${MSSQL_SA_PASSWORD:-AgoraStrong@Passw0rd!2026}"
 MSSQL_DB="${MSSQL_DB:-agora_db}"
 MSSQL_USER="${MSSQL_USER:-agora_user}"

@@ -15,7 +15,14 @@ elif [ -f .env ]; then
   export $(grep -v '^#' .env | xargs)
 fi
 
-ES_HOST="http://127.0.0.1:${ES_PORT:-9200}"
+ES_RAW_IP="${ES_EXTERNAL_IP:-127.0.0.1}"
+if [ "$ES_RAW_IP" = "0.0.0.0" ]; then
+  ES_CONNECT_IP="127.0.0.1"
+else
+  ES_CONNECT_IP="$ES_RAW_IP"
+fi
+ES_PORT="${ES_EXTERNAL_PORT:-${ES_PORT:-9200}}"
+ES_HOST="http://${ES_CONNECT_IP}:${ES_PORT}"
 ES_SUPER_USER="elastic"
 ES_SUPER_PASS="${ELASTIC_PASSWORD:-AgoraElasticSecret@Passw0rd!2026}"
 INDEX_NAME="${ES_INDEX:-canvas}"

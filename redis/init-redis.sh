@@ -15,8 +15,14 @@ elif [ -f .env ]; then
   export $(grep -v '^#' .env | xargs)
 fi
 
-REDIS_HOST="127.0.0.1"
-REDIS_PORT="${REDIS_PORT:-6379}"
+REDIS_EXTERNAL_IP="${REDIS_EXTERNAL_IP:-127.0.0.1}"
+REDIS_EXTERNAL_PORT="${REDIS_EXTERNAL_PORT:-${REDIS_PORT:-6379}}"
+if [ "$REDIS_EXTERNAL_IP" = "0.0.0.0" ]; then
+  REDIS_HOST="127.0.0.1"
+else
+  REDIS_HOST="$REDIS_EXTERNAL_IP"
+fi
+REDIS_PORT="$REDIS_EXTERNAL_PORT"
 REDIS_ADMIN_PASS="${REDIS_PASSWORD:-AgoraRedisSecret@Passw0rd!2026}"
 REDIS_USER="${REDIS_USER:-agora_user}"
 REDIS_USER_PASS="${REDIS_USER_PASSWORD:-AgoraUserSecret@Passw0rd!2026}"
@@ -63,4 +69,11 @@ echo -e "\n=== 3. 신규 사용자($REDIS_USER) 인증 및 인덱스($REDIS_INDE
 run_user_cli ping
 run_user_cli FT.INFO "$REDIS_INDEX_NAME" | head -n 4
 
-echo -e "\n[SUCCESS] Redis Stack 사용자($REDIS_USER) 및 인덱스($REDIS_INDEX_NAME) 초기화가 완료되었습니다."
+echo -e "\n=== 4. MS SQL에 Redis 외부 접속 정보($REDIS_EXTERNAL_IP:$REDIS_EXTERNAL_PORT) 등록 ==="
+if [ -f "$SCRIPT_DIR/register-to-mssql.sh" ]; then
+  bash "$SCRIPT_DIR/register-to-mssql.sh"
+else
+  echo "[WARN] $SCRIPT_DIR/register-to-mssql.sh 스크립트를 찾을 수 없어 MS SQL 등록을 건너뜁니다."
+fi
+
+echo -e "\n[SUCCESS] Redis Stack 사용자/인덱스 구축 및 MS SQL 서버 등록이 완료되었습니다."

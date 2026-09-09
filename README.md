@@ -24,7 +24,8 @@ project-agora-DB/
 │   ├── docker-compose.yml
 │   ├── .env.example
 │   ├── .env
-│   └── init-redis.sh
+│   ├── init-redis.sh
+│   └── register-to-mssql.sh
 ├── mssql/                          # MS SQL Server 서비스
 │   ├── docker-compose.yml
 │   ├── .env.example
@@ -67,13 +68,18 @@ docker compose up -d
 
 ---
 
-## 📊 컨테이너 및 포트 구성
+## 📊 컨테이너 및 외부 IP/포트 구성
 
-| 서비스 | 컨테이너 이름 | 포트 | 용도 |
-| :--- | :--- | :--- | :--- |
-| **Elasticsearch** | `agora-elasticsearch` | `127.0.0.1:9200` | REST API |
-| **Redis Stack** | `agora-redis-stack` | `6379`, `8001` | Redis 서버 (`6379`) / RedisInsight 웹 UI (`8001`) |
-| **MS SQL 2022** | `agora-mssql` | `127.0.0.1:1433` | SQL Server DB |
+모든 서비스는 각 서비스 디렉터리의 `.env` 파일에서 **외부 접속 IP**와 **외부 포트**를 유연하게 설정할 수 있습니다.
+
+| 서비스 | 컨테이너 이름 | 기본 포트 | 외부 IP 환경 변수 | 외부 포트 환경 변수 | 용도 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Elasticsearch** | `agora-elasticsearch` | `9200` | `ES_EXTERNAL_IP` (기본: `127.0.0.1`) | `ES_EXTERNAL_PORT` (기본: `9200`) | REST API |
+| **Redis Stack** | `agora-redis-stack` | `6379`, `8001` | `REDIS_EXTERNAL_IP` (기본: `127.0.0.1`) | `REDIS_EXTERNAL_PORT` (기본: `6379`) | Redis 서버 (`6379`) / RedisInsight (`8001`) |
+| **MS SQL 2022** | `agora-mssql` | `1433` | `MSSQL_EXTERNAL_IP` (기본: `127.0.0.1`) | `MSSQL_EXTERNAL_PORT` (기본: `1433`) | SQL Server DB |
+
+> [!NOTE]
+> 외부 접속을 전체 허용하려면 각 서비스의 `.env`에서 `*_EXTERNAL_IP=0.0.0.0`으로 설정할 수 있습니다. 로컬 호스트 전용으로 제한하려면 `127.0.0.1`로 설정합니다.
 
 ---
 
@@ -101,12 +107,19 @@ docker exec -i agora-mssql /opt/mssql-tools18/bin/sqlcmd \
 ./elasticsearch/init-elasticsearch.sh
 ```
 
-### (3) Redis Stack ACL 사용자 생성 및 RediSearch 인덱스 생성
-인덱스명(`REDIS_INDEX_NAME`)과 네임스페이스 프리픽스(`REDIS_KEY_PREFIX`)는 `.env`에서 변경할 수 있습니다.
+### (3) Redis Stack ACL 사용자 생성, RediSearch 인덱스 생성 및 MS SQL 자동 등록
+인덱스명(`REDIS_INDEX_NAME`), 네임스페이스 프리픽스(`REDIS_KEY_PREFIX`), 외부 접속 IP(`REDIS_EXTERNAL_IP`), 외부 포트(`REDIS_EXTERNAL_PORT`)는 `redis/.env`에서 변경할 수 있습니다.
+초기화가 완료되면 `redis/.env`에 지정된 외부 IP와 포트가 MS SQL Server의 `redis_server` 테이블에 자동으로 등록됩니다 (중복 등록 방지 처리 포함).
+
 ```bash
 ./redis/init-redis.sh
 ```
-*(로컬에 redis-cli가 없더라도 스크립트 내부에서 자동으로 Docker 컨테이너 명령어로 fallback 실행됩니다.)*
+*(로컬에 redis-cli 또는 sqlcmd가 없더라도 스크립트 내부에서 자동으로 Docker 컨테이너 명령어로 fallback 실행됩니다.)*
+
+만약 Redis 외부 정보만 MS SQL에 단독으로 재등록하고 싶다면 아래 스크립트를 단독 실행할 수 있습니다:
+```bash
+./redis/register-to-mssql.sh
+```
 
 ---
 

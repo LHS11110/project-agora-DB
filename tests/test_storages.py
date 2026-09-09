@@ -41,8 +41,10 @@ mssql_env = load_env_file(ROOT_DIR / "mssql" / ".env")
 es_env = load_env_file(ROOT_DIR / "elasticsearch" / ".env")
 redis_env = load_env_file(ROOT_DIR / "redis" / ".env")
 
-MSSQL_HOST = "127.0.0.1"
-MSSQL_PORT = mssql_env.get("MSSQL_PORT", "1433")
+# MSSQL 설정
+mssql_raw_host = mssql_env.get("MSSQL_EXTERNAL_IP", mssql_env.get("MSSQL_HOST", "127.0.0.1"))
+MSSQL_HOST = "127.0.0.1" if mssql_raw_host == "0.0.0.0" else mssql_raw_host
+MSSQL_PORT = mssql_env.get("MSSQL_EXTERNAL_PORT", mssql_env.get("MSSQL_PORT", "1433"))
 MSSQL_DB = mssql_env.get("MSSQL_DB", "agora_db")
 MSSQL_USER = mssql_env.get("MSSQL_USER", "agora_user")
 MSSQL_PASS = mssql_env.get("MSSQL_PASSWORD", "AgoraUserSecret@Passw0rd!2026")
@@ -50,13 +52,19 @@ MSSQL_TABLE_USERS = mssql_env.get("MSSQL_TABLE_USERS", "users")
 MSSQL_TABLE_REDIS_SERVER = mssql_env.get("MSSQL_TABLE_REDIS_SERVER", "redis_server")
 MSSQL_TABLE_CANVAS_CACHE = mssql_env.get("MSSQL_TABLE_CANVAS_CACHE", "canvas_cache")
 
-ES_HOST = f"http://127.0.0.1:{es_env.get('ES_PORT', '9200')}"
+# Elasticsearch 설정
+es_raw_ip = es_env.get("ES_EXTERNAL_IP", "127.0.0.1")
+es_connect_ip = "127.0.0.1" if es_raw_ip == "0.0.0.0" else es_raw_ip
+es_port = es_env.get("ES_EXTERNAL_PORT", es_env.get("ES_PORT", "9200"))
+ES_HOST = f"http://{es_connect_ip}:{es_port}"
 ES_INDEX = es_env.get("ES_INDEX", "canvas")
 ES_USER = es_env.get("ES_USER_NAME", "agora_user")
 ES_PASS = es_env.get("ES_USER_PASSWORD", "AgoraUserSecret@Passw0rd!2026")
 
-REDIS_HOST = "127.0.0.1"
-REDIS_PORT = redis_env.get("REDIS_PORT", "6379")
+# Redis 설정
+redis_raw_host = redis_env.get("REDIS_EXTERNAL_IP", "127.0.0.1")
+REDIS_HOST = "127.0.0.1" if redis_raw_host == "0.0.0.0" else redis_raw_host
+REDIS_PORT = redis_env.get("REDIS_EXTERNAL_PORT", redis_env.get("REDIS_PORT", "6379"))
 REDIS_USER = redis_env.get("REDIS_USER", "agora_user")
 REDIS_PASS = redis_env.get("REDIS_USER_PASSWORD", "AgoraUserSecret@Passw0rd!2026")
 REDIS_INDEX_NAME = redis_env.get("REDIS_INDEX_NAME", "idx:canvas")
@@ -121,8 +129,10 @@ def test_mssql():
         record_test(f"회원 테이블({MSSQL_TABLE_USERS}) 데이터 삭제 [Delete] 성공 (클린업 완료)", u_del == "0", u_del)
 
         # (1-4) 캐시 및 Redis 서버 테이블 CRUD
-        run_query(f"INSERT INTO [{MSSQL_TABLE_REDIS_SERVER}] (redis_ip, redis_port) VALUES ('127.0.0.1', '6379');")
-        run_query(f"INSERT INTO [{MSSQL_TABLE_CANVAS_CACHE}] (canvas_id, canvas_name, redis_ip, redis_port, is_cached) VALUES (8888, N'test-py-canvas', '127.0.0.1', '6379', 0);")
+        test_cache_redis_ip = "127.0.0.99"
+        test_cache_redis_port = "6399"
+        run_query(f"INSERT INTO [{MSSQL_TABLE_REDIS_SERVER}] (redis_ip, redis_port) VALUES ('{test_cache_redis_ip}', '{test_cache_redis_port}');")
+        run_query(f"INSERT INTO [{MSSQL_TABLE_CANVAS_CACHE}] (canvas_id, canvas_name, redis_ip, redis_port, is_cached) VALUES (8888, N'test-py-canvas', '{test_cache_redis_ip}', '{test_cache_redis_port}', 0);")
         ins_cnt = run_query(f"SELECT COUNT(*) FROM [{MSSQL_TABLE_CANVAS_CACHE}] WHERE canvas_id = 8888;")
         record_test(f"캐시 테이블({MSSQL_TABLE_REDIS_SERVER}, {MSSQL_TABLE_CANVAS_CACHE}) 데이터 삽입 [Create] 성공 (canvas_id: 8888)", ins_cnt == "1", ins_cnt)
 
@@ -137,7 +147,7 @@ def test_mssql():
 
         # (1-7) 데이터 삭제 [Delete] (클린업)
         run_query(f"DELETE FROM [{MSSQL_TABLE_CANVAS_CACHE}] WHERE canvas_id = 8888;")
-        run_query(f"DELETE FROM [{MSSQL_TABLE_REDIS_SERVER}] WHERE redis_ip = '127.0.0.1' AND redis_port = '6379';")
+        run_query(f"DELETE FROM [{MSSQL_TABLE_REDIS_SERVER}] WHERE redis_ip = '{test_cache_redis_ip}' AND redis_port = '{test_cache_redis_port}';")
         del_cnt = run_query(f"SELECT COUNT(*) FROM [{MSSQL_TABLE_CANVAS_CACHE}] WHERE canvas_id = 8888;")
         record_test(f"캐시 테이블({MSSQL_TABLE_CANVAS_CACHE}, {MSSQL_TABLE_REDIS_SERVER}) 데이터 삭제 [Delete] 성공 (클린업 완료)", del_cnt == "0", del_cnt)
     except Exception as e:

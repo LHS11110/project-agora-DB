@@ -17,8 +17,8 @@ services:
       - MSSQL_TABLE_CANVAS_CACHE=${MSSQL_TABLE_CANVAS_CACHE:-canvas_cache}
       - TZ=${TIMEZONE:-Asia/Seoul}
     ports:
-      # 외부 직접 노출 방지: 127.0.0.1 바인딩
-      - "127.0.0.1:${MSSQL_PORT:-1433}:1433"
+      # 외부 접속 바인딩 (.env의 MSSQL_EXTERNAL_IP, MSSQL_EXTERNAL_PORT 설정 반영)
+      - "${MSSQL_EXTERNAL_IP:-127.0.0.1}:${MSSQL_EXTERNAL_PORT:-${MSSQL_PORT:-1433}}:1433"
     volumes:
       - mssql_data:/var/opt/mssql
     networks:

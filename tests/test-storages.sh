@@ -44,8 +44,19 @@ echo -e "${CYAN}================================================================
 echo -e "${YELLOW}[1/3] MS SQL Server 사용자 CRUD 테스트${NC}"
 
 if [ -f "$ROOT_DIR/mssql/.env" ]; then
-  MSSQL_HOST="127.0.0.1"
-  MSSQL_PORT=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep 'MSSQL_PORT=' | cut -d '=' -f2- | tr -d '\r' || echo "1433")
+  MSSQL_RAW_HOST=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep 'MSSQL_EXTERNAL_IP=' | cut -d '=' -f2- | tr -d '\r' || true)
+  if [ -z "$MSSQL_RAW_HOST" ]; then
+    MSSQL_RAW_HOST=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep 'MSSQL_HOST=' | cut -d '=' -f2- | tr -d '\r' || echo "127.0.0.1")
+  fi
+  if [ "$MSSQL_RAW_HOST" = "0.0.0.0" ]; then
+    MSSQL_HOST="127.0.0.1"
+  else
+    MSSQL_HOST="$MSSQL_RAW_HOST"
+  fi
+  MSSQL_PORT=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep 'MSSQL_EXTERNAL_PORT=' | cut -d '=' -f2- | tr -d '\r' || true)
+  if [ -z "$MSSQL_PORT" ]; then
+    MSSQL_PORT=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep 'MSSQL_PORT=' | cut -d '=' -f2- | tr -d '\r' || echo "1433")
+  fi
   MSSQL_DB=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep 'MSSQL_DB=' | cut -d '=' -f2- | tr -d '\r' || echo "agora_db")
   MSSQL_USER=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep 'MSSQL_USER=' | cut -d '=' -f2- | tr -d '\r' || echo "agora_user")
   MSSQL_PASS=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep 'MSSQL_PASSWORD=' | cut -d '=' -f2- | tr -d '\r' || echo "AgoraUserSecret@Passw0rd!2026")
@@ -123,7 +134,9 @@ else
 fi
 
 # (1-4) 캐시 및 Redis 서버 테이블($MSSQL_TABLE_REDIS_SERVER, $MSSQL_TABLE_CANVAS_CACHE) CRUD 테스트
-MSSQL_INS_OUT=$(run_mssql_query "SET NOCOUNT ON; INSERT INTO [$MSSQL_TABLE_REDIS_SERVER] (redis_ip, redis_port) VALUES ('127.0.0.1', '6379'); INSERT INTO [$MSSQL_TABLE_CANVAS_CACHE] (canvas_id, canvas_name, redis_ip, redis_port, is_cached) VALUES (9999, N'test-crud-canvas', '127.0.0.1', '6379', 0); SELECT COUNT(*) FROM [$MSSQL_TABLE_CANVAS_CACHE] WHERE canvas_id = 9999;" | tr -dc '0-9')
+TEST_CACHE_REDIS_IP="127.0.0.99"
+TEST_CACHE_REDIS_PORT="6399"
+MSSQL_INS_OUT=$(run_mssql_query "SET NOCOUNT ON; INSERT INTO [$MSSQL_TABLE_REDIS_SERVER] (redis_ip, redis_port) VALUES ('$TEST_CACHE_REDIS_IP', '$TEST_CACHE_REDIS_PORT'); INSERT INTO [$MSSQL_TABLE_CANVAS_CACHE] (canvas_id, canvas_name, redis_ip, redis_port, is_cached) VALUES (9999, N'test-crud-canvas', '$TEST_CACHE_REDIS_IP', '$TEST_CACHE_REDIS_PORT', 0); SELECT COUNT(*) FROM [$MSSQL_TABLE_CANVAS_CACHE] WHERE canvas_id = 9999;" | tr -dc '0-9')
 if [ "$MSSQL_INS_OUT" = "1" ]; then
   log_test_pass "캐시 테이블($MSSQL_TABLE_REDIS_SERVER, $MSSQL_TABLE_CANVAS_CACHE) 데이터 삽입 [Create] 성공 (canvas_id: 9999)"
 else
@@ -147,7 +160,7 @@ else
 fi
 
 # (1-7) 데이터 삭제 [Delete]
-MSSQL_DEL_OUT=$(run_mssql_query "SET NOCOUNT ON; DELETE FROM [$MSSQL_TABLE_CANVAS_CACHE] WHERE canvas_id = 9999; DELETE FROM [$MSSQL_TABLE_REDIS_SERVER] WHERE redis_ip = '127.0.0.1' AND redis_port = '6379'; SELECT COUNT(*) FROM [$MSSQL_TABLE_CANVAS_CACHE] WHERE canvas_id = 9999;" | tr -dc '0-9')
+MSSQL_DEL_OUT=$(run_mssql_query "SET NOCOUNT ON; DELETE FROM [$MSSQL_TABLE_CANVAS_CACHE] WHERE canvas_id = 9999; DELETE FROM [$MSSQL_TABLE_REDIS_SERVER] WHERE redis_ip = '$TEST_CACHE_REDIS_IP' AND redis_port = '$TEST_CACHE_REDIS_PORT'; SELECT COUNT(*) FROM [$MSSQL_TABLE_CANVAS_CACHE] WHERE canvas_id = 9999;" | tr -dc '0-9')
 if [ "$MSSQL_DEL_OUT" = "0" ]; then
   log_test_pass "캐시 테이블($MSSQL_TABLE_CANVAS_CACHE, $MSSQL_TABLE_REDIS_SERVER) 데이터 삭제 [Delete] 성공 (클린업 완료)"
 else
@@ -162,18 +175,28 @@ echo ""
 echo -e "${YELLOW}[2/3] Elasticsearch 사용자 CRUD/Search 테스트${NC}"
 
 if [ -f "$ROOT_DIR/elasticsearch/.env" ]; then
-  ES_PORT=$(grep -v '^#' "$ROOT_DIR/elasticsearch/.env" | grep 'ES_PORT=' | cut -d '=' -f2- | tr -d '\r' || echo "9200")
+  ES_RAW_IP=$(grep -v '^#' "$ROOT_DIR/elasticsearch/.env" | grep 'ES_EXTERNAL_IP=' | cut -d '=' -f2- | tr -d '\r' || echo "127.0.0.1")
+  if [ "$ES_RAW_IP" = "0.0.0.0" ]; then
+    ES_IP="127.0.0.1"
+  else
+    ES_IP="$ES_RAW_IP"
+  fi
+  ES_PORT=$(grep -v '^#' "$ROOT_DIR/elasticsearch/.env" | grep 'ES_EXTERNAL_PORT=' | cut -d '=' -f2- | tr -d '\r' || true)
+  if [ -z "$ES_PORT" ]; then
+    ES_PORT=$(grep -v '^#' "$ROOT_DIR/elasticsearch/.env" | grep 'ES_PORT=' | cut -d '=' -f2- | tr -d '\r' || echo "9200")
+  fi
   ES_INDEX=$(grep -v '^#' "$ROOT_DIR/elasticsearch/.env" | grep 'ES_INDEX=' | cut -d '=' -f2- | tr -d '\r' || echo "canvas")
   ES_USER=$(grep -v '^#' "$ROOT_DIR/elasticsearch/.env" | grep 'ES_USER_NAME=' | cut -d '=' -f2- | tr -d '\r' || echo "agora_user")
   ES_PASS=$(grep -v '^#' "$ROOT_DIR/elasticsearch/.env" | grep 'ES_USER_PASSWORD=' | cut -d '=' -f2- | tr -d '\r' || echo "AgoraUserSecret@Passw0rd!2026")
 else
+  ES_IP="127.0.0.1"
   ES_PORT="9200"
   ES_INDEX="canvas"
   ES_USER="agora_user"
   ES_PASS="AgoraUserSecret@Passw0rd!2026"
 fi
 
-ES_URL="http://127.0.0.1:$ES_PORT"
+ES_URL="http://$ES_IP:$ES_PORT"
 echo "  - 접속 정보: $ES_USER@$ES_URL (인덱스: $ES_INDEX)"
 
 # (2-1) 사용자 인증 및 역할(Role) 확인
@@ -250,8 +273,16 @@ echo ""
 echo -e "${YELLOW}[3/3] Redis Stack 사용자 CRUD/Search/Scope 테스트${NC}"
 
 if [ -f "$ROOT_DIR/redis/.env" ]; then
-  REDIS_HOST="127.0.0.1"
-  REDIS_PORT=$(grep -v '^#' "$ROOT_DIR/redis/.env" | grep 'REDIS_PORT=' | cut -d '=' -f2- | tr -d '\r' || echo "6379")
+  REDIS_RAW_HOST=$(grep -v '^#' "$ROOT_DIR/redis/.env" | grep 'REDIS_EXTERNAL_IP=' | cut -d '=' -f2- | tr -d '\r' || echo "127.0.0.1")
+  if [ "$REDIS_RAW_HOST" = "0.0.0.0" ]; then
+    REDIS_HOST="127.0.0.1"
+  else
+    REDIS_HOST="$REDIS_RAW_HOST"
+  fi
+  REDIS_PORT=$(grep -v '^#' "$ROOT_DIR/redis/.env" | grep 'REDIS_EXTERNAL_PORT=' | cut -d '=' -f2- | tr -d '\r' || true)
+  if [ -z "$REDIS_PORT" ]; then
+    REDIS_PORT=$(grep -v '^#' "$ROOT_DIR/redis/.env" | grep 'REDIS_PORT=' | cut -d '=' -f2- | tr -d '\r' || echo "6379")
+  fi
   REDIS_USER=$(grep -v '^#' "$ROOT_DIR/redis/.env" | grep 'REDIS_USER=' | cut -d '=' -f2- | tr -d '\r' || echo "agora_user")
   REDIS_PASS=$(grep -v '^#' "$ROOT_DIR/redis/.env" | grep 'REDIS_USER_PASSWORD=' | cut -d '=' -f2- | tr -d '\r' || echo "AgoraUserSecret@Passw0rd!2026")
   REDIS_INDEX_NAME=$(grep -v '^#' "$ROOT_DIR/redis/.env" | grep 'REDIS_INDEX_NAME=' | cut -d '=' -f2- | tr -d '\r' || echo "idx:canvas")

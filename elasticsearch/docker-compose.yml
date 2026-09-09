@@ -15,8 +15,8 @@ services:
       - "ES_JAVA_OPTS=-Xms${ES_JAVA_MIN_MEM:-1g} -Xmx${ES_JAVA_MAX_MEM:-2g}"
       - TZ=${TIMEZONE:-Asia/Seoul}
     ports:
-      # 외부 직접 노출 방지: 127.0.0.1 바인딩
-      - "127.0.0.1:${ES_PORT:-9200}:9200"
+      # 외부 접속 바인딩 (.env의 ES_EXTERNAL_IP, ES_EXTERNAL_PORT 설정 반영)
+      - "${ES_EXTERNAL_IP:-127.0.0.1}:${ES_EXTERNAL_PORT:-${ES_PORT:-9200}}:9200"
     volumes:
       - es_data:/usr/share/elasticsearch/data
     networks:
