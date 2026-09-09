@@ -171,10 +171,14 @@ docker exec -i agora-mssql /opt/mssql-tools18/bin/sqlcmd \
 
 #### `canvas_cache` (캔버스 캐시 상태 확인)
 - `canvas_id`: `INT` (PK)
-- `canvas_name`: `NVARCHAR(255) NOT NULL`
-- `redis_ip`: `VARCHAR(45) NULL`
-- `redis_port`: `VARCHAR(10) NULL`
+- `canvas_name`: `NVARCHAR(255) NOT NULL` (공백 불가)
+- `redis_ip`: `VARCHAR(45) NULL` (FK: `redis_server(redis_ip, redis_port)`)
+- `redis_port`: `VARCHAR(10) NULL` (FK: `redis_server(redis_ip, redis_port)`)
+- `server_ip`: `VARCHAR(45) NULL` (FK: `python_server(server_ip, server_port)`)
+- `server_port`: `VARCHAR(10) NULL` (FK: `python_server(server_ip, server_port)`)
 - `is_cached`: `BIT NOT NULL DEFAULT 0`
+- `created_at`: `DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()`
+- `updated_at`: `DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()`
 
 #### `python_server` (Python 실시간 서버 인스턴스 관리)
 - `server_id`: `INT IDENTITY(1,1)` (PK)

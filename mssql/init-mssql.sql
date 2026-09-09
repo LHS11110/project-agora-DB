@@ -73,7 +73,34 @@ BEGIN
 END
 GO
 
--- 7. 캔버스 캐시 확인 테이블 (PK: canvas_id, FK: redis_server(redis_ip, redis_port))
+-- 7. Python Server 등록 테이블 (PK: server_id, UQ: server_ip, server_port)
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = '$(TABLE_PYTHON_SERVER)')
+BEGIN
+    CREATE TABLE [$(TABLE_PYTHON_SERVER)] (
+        server_id    INT IDENTITY(1,1) NOT NULL,
+        server_ip    VARCHAR(45)       NOT NULL,          -- Python 서버 IP 주소 (IPv4/IPv6, 공백 불가)
+        server_port  VARCHAR(10)       NOT NULL,          -- Python 서버 포트 번호 (공백 불가)
+        created_at   DATETIME2         NOT NULL DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT [PK_$(TABLE_PYTHON_SERVER)] PRIMARY KEY CLUSTERED (server_id),
+        CONSTRAINT [UQ_$(TABLE_PYTHON_SERVER)_ip_port] UNIQUE NONCLUSTERED (server_ip, server_port),
+        CONSTRAINT [CK_$(TABLE_PYTHON_SERVER)_ip] CHECK (LEN(LTRIM(RTRIM(server_ip))) > 0),
+        CONSTRAINT [CK_$(TABLE_PYTHON_SERVER)_port] CHECK (LEN(LTRIM(RTRIM(server_port))) > 0)
+    );
+END
+ELSE
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_$(TABLE_PYTHON_SERVER)_ip')
+    BEGIN
+        ALTER TABLE [$(TABLE_PYTHON_SERVER)] ADD CONSTRAINT [CK_$(TABLE_PYTHON_SERVER)_ip] CHECK (LEN(LTRIM(RTRIM(server_ip))) > 0);
+    END;
+    IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_$(TABLE_PYTHON_SERVER)_port')
+    BEGIN
+        ALTER TABLE [$(TABLE_PYTHON_SERVER)] ADD CONSTRAINT [CK_$(TABLE_PYTHON_SERVER)_port] CHECK (LEN(LTRIM(RTRIM(server_port))) > 0);
+    END;
+END
+GO
+
+-- 8. 캔버스 캐시 확인 테이블 (PK: canvas_id, FK: redis_server, FK: python_server)
 IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = '$(TABLE_CANVAS_CACHE)')
 BEGIN
     CREATE TABLE [$(TABLE_CANVAS_CACHE)] (
@@ -81,6 +108,8 @@ BEGIN
         canvas_name NVARCHAR(255) NOT NULL,              -- 캔버스 이름 (공백 불가)
         redis_ip    VARCHAR(45)   NULL,                  -- Redis IP 주소 (NULL 가능)
         redis_port  VARCHAR(10)   NULL,                  -- Redis 포트 번호 (NULL 가능)
+        server_ip   VARCHAR(45)   NULL,                  -- Python 서버 IP 주소 (NULL 가능)
+        server_port VARCHAR(10)   NULL,                  -- Python 서버 포트 번호 (NULL 가능)
         is_cached   BIT           NOT NULL DEFAULT 0,     -- 캐시 여부 (NULL 불가, 0: False, 1: True)
         created_at  DATETIME2     NOT NULL DEFAULT SYSUTCDATETIME(),
         updated_at  DATETIME2     NOT NULL DEFAULT SYSUTCDATETIME(),
@@ -89,8 +118,31 @@ BEGIN
         CONSTRAINT [FK_$(TABLE_CANVAS_CACHE)_$(TABLE_REDIS_SERVER)] FOREIGN KEY (redis_ip, redis_port)
             REFERENCES [$(TABLE_REDIS_SERVER)] (redis_ip, redis_port)
             ON DELETE SET NULL
+            ON UPDATE CASCADE,
+        CONSTRAINT [FK_$(TABLE_CANVAS_CACHE)_$(TABLE_PYTHON_SERVER)] FOREIGN KEY (server_ip, server_port)
+            REFERENCES [$(TABLE_PYTHON_SERVER)] (server_ip, server_port)
+            ON DELETE SET NULL
             ON UPDATE CASCADE
     );
+END
+ELSE
+BEGIN
+    IF COL_LENGTH('$(TABLE_CANVAS_CACHE)', 'server_ip') IS NULL
+    BEGIN
+        ALTER TABLE [$(TABLE_CANVAS_CACHE)] ADD server_ip VARCHAR(45) NULL;
+    END;
+    IF COL_LENGTH('$(TABLE_CANVAS_CACHE)', 'server_port') IS NULL
+    BEGIN
+        ALTER TABLE [$(TABLE_CANVAS_CACHE)] ADD server_port VARCHAR(10) NULL;
+    END;
+    IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_$(TABLE_CANVAS_CACHE)_$(TABLE_PYTHON_SERVER)')
+    BEGIN
+        ALTER TABLE [$(TABLE_CANVAS_CACHE)] ADD CONSTRAINT [FK_$(TABLE_CANVAS_CACHE)_$(TABLE_PYTHON_SERVER)]
+            FOREIGN KEY (server_ip, server_port)
+            REFERENCES [$(TABLE_PYTHON_SERVER)] (server_ip, server_port)
+            ON DELETE SET NULL
+            ON UPDATE CASCADE;
+    END;
 END
 GO
 
@@ -100,7 +152,7 @@ BEGIN
 END
 GO
 
--- 8. 회원 테이블 (PK: user_id, UQ: email, 인덱스: oauth, nickname)
+-- 9. 회원 테이블 (PK: user_id, UQ: email, 인덱스: oauth, nickname)
 IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = '$(TABLE_USERS)')
 BEGIN
     CREATE TABLE [$(TABLE_USERS)] (
@@ -138,22 +190,6 @@ GO
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_$(TABLE_USERS)_Nickname' AND object_id = OBJECT_ID('$(TABLE_USERS)'))
 BEGIN
     CREATE NONCLUSTERED INDEX [IX_$(TABLE_USERS)_Nickname] ON [$(TABLE_USERS)] (nickname);
-END
-GO
-
--- 9. Python Server 등록 테이블 (PK: server_id, UQ: server_ip, server_port)
-IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = '$(TABLE_PYTHON_SERVER)')
-BEGIN
-    CREATE TABLE [$(TABLE_PYTHON_SERVER)] (
-        server_id    INT IDENTITY(1,1) NOT NULL,
-        server_ip    VARCHAR(45)       NOT NULL,          -- Python 서버 IP 주소 (IPv4/IPv6, 공백 불가)
-        server_port  VARCHAR(10)       NOT NULL,          -- Python 서버 포트 번호 (공백 불가)
-        created_at   DATETIME2         NOT NULL DEFAULT SYSUTCDATETIME(),
-        CONSTRAINT [PK_$(TABLE_PYTHON_SERVER)] PRIMARY KEY CLUSTERED (server_id),
-        CONSTRAINT [UQ_$(TABLE_PYTHON_SERVER)_ip_port] UNIQUE NONCLUSTERED (server_ip, server_port),
-        CONSTRAINT [CK_$(TABLE_PYTHON_SERVER)_ip] CHECK (LEN(LTRIM(RTRIM(server_ip))) > 0),
-        CONSTRAINT [CK_$(TABLE_PYTHON_SERVER)_port] CHECK (LEN(LTRIM(RTRIM(server_port))) > 0)
-    );
 END
 GO
 
