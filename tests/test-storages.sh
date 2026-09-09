@@ -62,7 +62,10 @@ if [ -f "$ROOT_DIR/mssql/.env" ]; then
   MSSQL_PASS=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep 'MSSQL_PASSWORD=' | cut -d '=' -f2- | tr -d '\r' || echo "AgoraUserSecret@Passw0rd!2026")
   MSSQL_TABLE_USERS=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep 'MSSQL_TABLE_USERS=' | cut -d '=' -f2- | tr -d '\r' || echo "users")
   MSSQL_TABLE_REDIS_SERVER=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep 'MSSQL_TABLE_REDIS_SERVER=' | cut -d '=' -f2- | tr -d '\r' || echo "redis_server")
-  MSSQL_TABLE_CANVAS_CACHE=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep 'MSSQL_TABLE_CANVAS_CACHE=' | cut -d '=' -f2- | tr -d '\r' || echo "canvas_cache")
+  MSSQL_TABLE_CANVAS_INFO=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep 'MSSQL_TABLE_CANVAS_INFO=' | cut -d '=' -f2- | tr -d '\r' || true)
+  if [ -z "$MSSQL_TABLE_CANVAS_INFO" ]; then
+    MSSQL_TABLE_CANVAS_INFO=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep 'MSSQL_TABLE_CANVAS_CACHE=' | cut -d '=' -f2- | tr -d '\r' || echo "canvas_info")
+  fi
   MSSQL_TABLE_PYTHON_SERVER=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep 'MSSQL_TABLE_PYTHON_SERVER=' | cut -d '=' -f2- | tr -d '\r' || echo "python_server")
 else
   MSSQL_HOST="127.0.0.1"
@@ -72,12 +75,12 @@ else
   MSSQL_PASS="AgoraUserSecret@Passw0rd!2026"
   MSSQL_TABLE_USERS="users"
   MSSQL_TABLE_REDIS_SERVER="redis_server"
-  MSSQL_TABLE_CANVAS_CACHE="canvas_cache"
+  MSSQL_TABLE_CANVAS_INFO="canvas_info"
   MSSQL_TABLE_PYTHON_SERVER="python_server"
 fi
 
 echo "  - 접속 정보: $MSSQL_USER@$MSSQL_HOST:$MSSQL_PORT/$MSSQL_DB"
-echo "  - 검증 테이블: $MSSQL_TABLE_USERS, $MSSQL_TABLE_REDIS_SERVER, $MSSQL_TABLE_CANVAS_CACHE, $MSSQL_TABLE_PYTHON_SERVER"
+echo "  - 검증 테이블: $MSSQL_TABLE_USERS, $MSSQL_TABLE_REDIS_SERVER, $MSSQL_TABLE_CANVAS_INFO, $MSSQL_TABLE_PYTHON_SERVER"
 
 run_mssql_query() {
   local query="$1"
@@ -97,10 +100,10 @@ else
   log_test_fail "사용자 인증 또는 DB 소유권 확인 실패" "$AUTH_OUT"
 fi
 
-# (1-2) 설정된 테이블 존재 여부 확인 (users, redis_server, canvas_cache, python_server 총 4개)
-TBL_CHECK_OUT=$(run_mssql_query "SET NOCOUNT ON; SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME IN ('$MSSQL_TABLE_USERS', '$MSSQL_TABLE_REDIS_SERVER', '$MSSQL_TABLE_CANVAS_CACHE', '$MSSQL_TABLE_PYTHON_SERVER');" | tr -dc '0-9')
+# (1-2) 설정된 테이블 존재 여부 확인 (users, redis_server, canvas_info, python_server 총 4개)
+TBL_CHECK_OUT=$(run_mssql_query "SET NOCOUNT ON; SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME IN ('$MSSQL_TABLE_USERS', '$MSSQL_TABLE_REDIS_SERVER', '$MSSQL_TABLE_CANVAS_INFO', '$MSSQL_TABLE_PYTHON_SERVER');" | tr -dc '0-9')
 if [ "$TBL_CHECK_OUT" = "4" ]; then
-  log_test_pass "환경변수 지정 테이블($MSSQL_TABLE_USERS, $MSSQL_TABLE_REDIS_SERVER, $MSSQL_TABLE_CANVAS_CACHE, $MSSQL_TABLE_PYTHON_SERVER) 생성 확인"
+  log_test_pass "환경변수 지정 테이블($MSSQL_TABLE_USERS, $MSSQL_TABLE_REDIS_SERVER, $MSSQL_TABLE_CANVAS_INFO, $MSSQL_TABLE_PYTHON_SERVER) 생성 확인"
 else
   log_test_fail "테이블 생성 확인 실패 (발견된 테이블 수: $TBL_CHECK_OUT / 4)" "$TBL_CHECK_OUT"
 fi
@@ -135,38 +138,38 @@ else
   log_test_fail "회원 테이블 데이터 삭제 실패" "$MSSQL_USER_DEL"
 fi
 
-# (1-4) 캐시 및 Redis 서버 테이블($MSSQL_TABLE_REDIS_SERVER, $MSSQL_TABLE_CANVAS_CACHE) CRUD 테스트
+# (1-4) 캔버스 정보 및 Redis 서버 테이블($MSSQL_TABLE_REDIS_SERVER, $MSSQL_TABLE_CANVAS_INFO) CRUD 테스트
 TEST_CACHE_REDIS_IP="127.0.0.99"
 TEST_CACHE_REDIS_PORT="6399"
-MSSQL_INS_OUT=$(run_mssql_query "SET NOCOUNT ON; INSERT INTO [$MSSQL_TABLE_REDIS_SERVER] (redis_ip, redis_port) VALUES ('$TEST_CACHE_REDIS_IP', '$TEST_CACHE_REDIS_PORT'); INSERT INTO [$MSSQL_TABLE_CANVAS_CACHE] (canvas_id, canvas_name, redis_ip, redis_port, is_cached) VALUES (9999, N'test-crud-canvas', '$TEST_CACHE_REDIS_IP', '$TEST_CACHE_REDIS_PORT', 0); SELECT COUNT(*) FROM [$MSSQL_TABLE_CANVAS_CACHE] WHERE canvas_id = 9999;" | tr -dc '0-9')
+MSSQL_INS_OUT=$(run_mssql_query "SET NOCOUNT ON; DECLARE @uid INT; INSERT INTO [$MSSQL_TABLE_USERS] (email, nickname, role, status) VALUES ('canvas_owner@agora.com', N'CanvasOwner', 'ROLE_USER', 'ACTIVE'); SET @uid = SCOPE_IDENTITY(); INSERT INTO [$MSSQL_TABLE_REDIS_SERVER] (redis_ip, redis_port) VALUES ('$TEST_CACHE_REDIS_IP', '$TEST_CACHE_REDIS_PORT'); INSERT INTO [$MSSQL_TABLE_CANVAS_INFO] (canvas_id, canvas_name, redis_ip, redis_port, user_id, is_cached) VALUES (9999, N'test-crud-canvas', '$TEST_CACHE_REDIS_IP', '$TEST_CACHE_REDIS_PORT', @uid, 0); SELECT COUNT(*) FROM [$MSSQL_TABLE_CANVAS_INFO] WHERE canvas_id = 9999;" | tr -dc '0-9')
 if [ "$MSSQL_INS_OUT" = "1" ]; then
-  log_test_pass "캐시 테이블($MSSQL_TABLE_REDIS_SERVER, $MSSQL_TABLE_CANVAS_CACHE) 데이터 삽입 [Create] 성공 (canvas_id: 9999)"
+  log_test_pass "캔버스 정보 테이블($MSSQL_TABLE_CANVAS_INFO) 데이터 삽입 [Create] 성공 (canvas_id: 9999, user_id FK 연동)"
 else
-  log_test_fail "캐시 테이블 데이터 삽입 실패" "$MSSQL_INS_OUT"
+  log_test_fail "캔버스 정보 테이블 데이터 삽입 실패" "$MSSQL_INS_OUT"
 fi
 
 # (1-5) 데이터 조회 [Read]
-MSSQL_READ_OUT=$(run_mssql_query "SET NOCOUNT ON; SELECT is_cached FROM [$MSSQL_TABLE_CANVAS_CACHE] WHERE canvas_id = 9999;" | tr -dc '0-9')
+MSSQL_READ_OUT=$(run_mssql_query "SET NOCOUNT ON; SELECT is_cached FROM [$MSSQL_TABLE_CANVAS_INFO] WHERE canvas_id = 9999;" | tr -dc '0-9')
 if [ "$MSSQL_READ_OUT" = "0" ]; then
-  log_test_pass "캐시 테이블($MSSQL_TABLE_CANVAS_CACHE) 데이터 조회 [Read] 성공 (is_cached: 0)"
+  log_test_pass "캔버스 정보 테이블($MSSQL_TABLE_CANVAS_INFO) 데이터 조회 [Read] 성공 (is_cached: 0)"
 else
-  log_test_fail "캐시 테이블($MSSQL_TABLE_CANVAS_CACHE) 데이터 조회 실패" "$MSSQL_READ_OUT"
+  log_test_fail "캔버스 정보 테이블($MSSQL_TABLE_CANVAS_INFO) 데이터 조회 실패" "$MSSQL_READ_OUT"
 fi
 
 # (1-6) 데이터 수정 [Update]
-MSSQL_UPD_OUT=$(run_mssql_query "SET NOCOUNT ON; UPDATE [$MSSQL_TABLE_CANVAS_CACHE] SET is_cached = 1 WHERE canvas_id = 9999; SELECT is_cached FROM [$MSSQL_TABLE_CANVAS_CACHE] WHERE canvas_id = 9999;" | tr -dc '0-9')
+MSSQL_UPD_OUT=$(run_mssql_query "SET NOCOUNT ON; UPDATE [$MSSQL_TABLE_CANVAS_INFO] SET is_cached = 1 WHERE canvas_id = 9999; SELECT is_cached FROM [$MSSQL_TABLE_CANVAS_INFO] WHERE canvas_id = 9999;" | tr -dc '0-9')
 if [ "$MSSQL_UPD_OUT" = "1" ]; then
-  log_test_pass "캐시 테이블($MSSQL_TABLE_CANVAS_CACHE) 데이터 수정 [Update] 성공 (is_cached: 0 -> 1)"
+  log_test_pass "캔버스 정보 테이블($MSSQL_TABLE_CANVAS_INFO) 데이터 수정 [Update] 성공 (is_cached: 0 -> 1)"
 else
-  log_test_fail "캐시 테이블($MSSQL_TABLE_CANVAS_CACHE) 데이터 수정 실패" "$MSSQL_UPD_OUT"
+  log_test_fail "캔버스 정보 테이블($MSSQL_TABLE_CANVAS_INFO) 데이터 수정 실패" "$MSSQL_UPD_OUT"
 fi
 
 # (1-7) 데이터 삭제 [Delete]
-MSSQL_DEL_OUT=$(run_mssql_query "SET NOCOUNT ON; DELETE FROM [$MSSQL_TABLE_CANVAS_CACHE] WHERE canvas_id = 9999; DELETE FROM [$MSSQL_TABLE_REDIS_SERVER] WHERE redis_ip = '$TEST_CACHE_REDIS_IP' AND redis_port = '$TEST_CACHE_REDIS_PORT'; SELECT COUNT(*) FROM [$MSSQL_TABLE_CANVAS_CACHE] WHERE canvas_id = 9999;" | tr -dc '0-9')
+MSSQL_DEL_OUT=$(run_mssql_query "SET NOCOUNT ON; DELETE FROM [$MSSQL_TABLE_CANVAS_INFO] WHERE canvas_id = 9999; DELETE FROM [$MSSQL_TABLE_USERS] WHERE email = 'canvas_owner@agora.com'; DELETE FROM [$MSSQL_TABLE_REDIS_SERVER] WHERE redis_ip = '$TEST_CACHE_REDIS_IP' AND redis_port = '$TEST_CACHE_REDIS_PORT'; SELECT COUNT(*) FROM [$MSSQL_TABLE_CANVAS_INFO] WHERE canvas_id = 9999;" | tr -dc '0-9')
 if [ "$MSSQL_DEL_OUT" = "0" ]; then
-  log_test_pass "캐시 테이블($MSSQL_TABLE_CANVAS_CACHE, $MSSQL_TABLE_REDIS_SERVER) 데이터 삭제 [Delete] 성공 (클린업 완료)"
+  log_test_pass "캔버스 정보 테이블($MSSQL_TABLE_CANVAS_INFO, $MSSQL_TABLE_REDIS_SERVER) 데이터 삭제 [Delete] 성공 (클린업 완료)"
 else
-  log_test_fail "캐시 테이블 데이터 삭제 실패" "$MSSQL_DEL_OUT"
+  log_test_fail "캔버스 정보 테이블 데이터 삭제 실패" "$MSSQL_DEL_OUT"
 fi
 
 # (1-8) Python 서버 테이블($MSSQL_TABLE_PYTHON_SERVER) 데이터 삽입 [Create]

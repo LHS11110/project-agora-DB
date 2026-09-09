@@ -50,7 +50,7 @@ MSSQL_USER = mssql_env.get("MSSQL_USER", "agora_user")
 MSSQL_PASS = mssql_env.get("MSSQL_PASSWORD", "AgoraUserSecret@Passw0rd!2026")
 MSSQL_TABLE_USERS = mssql_env.get("MSSQL_TABLE_USERS", "users")
 MSSQL_TABLE_REDIS_SERVER = mssql_env.get("MSSQL_TABLE_REDIS_SERVER", "redis_server")
-MSSQL_TABLE_CANVAS_CACHE = mssql_env.get("MSSQL_TABLE_CANVAS_CACHE", "canvas_cache")
+MSSQL_TABLE_CANVAS_INFO = mssql_env.get("MSSQL_TABLE_CANVAS_INFO", mssql_env.get("MSSQL_TABLE_CANVAS_CACHE", "canvas_info"))
 MSSQL_TABLE_PYTHON_SERVER = mssql_env.get("MSSQL_TABLE_PYTHON_SERVER", "python_server")
 
 # Elasticsearch 설정
@@ -86,7 +86,7 @@ def record_test(name: str, passed: bool, detail: str = ""):
 # ==============================================================================
 def test_mssql():
     print(f"\n{YELLOW}[1/3] MS SQL Server CRUD 테스트 ({MSSQL_USER}@{MSSQL_HOST}:{MSSQL_PORT}/{MSSQL_DB}){RESET}")
-    print(f"  - 검증 테이블: {MSSQL_TABLE_USERS}, {MSSQL_TABLE_REDIS_SERVER}, {MSSQL_TABLE_CANVAS_CACHE}, {MSSQL_TABLE_PYTHON_SERVER}")
+    print(f"  - 검증 테이블: {MSSQL_TABLE_USERS}, {MSSQL_TABLE_REDIS_SERVER}, {MSSQL_TABLE_CANVAS_INFO}, {MSSQL_TABLE_PYTHON_SERVER}")
     
     def run_query(sql: str) -> str:
         cmd = [
@@ -109,8 +109,8 @@ def test_mssql():
         record_test(f"사용자 인증 및 DB 소유권 확인 ({MSSQL_USER} -> dbo)", is_dbo, auth_info)
 
         # (1-2) 환경변수 테이블 존재 여부 확인 (4개 테이블)
-        tbl_cnt = run_query(f"SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME IN ('{MSSQL_TABLE_USERS}', '{MSSQL_TABLE_REDIS_SERVER}', '{MSSQL_TABLE_CANVAS_CACHE}', '{MSSQL_TABLE_PYTHON_SERVER}');")
-        record_test(f"환경변수 지정 테이블({MSSQL_TABLE_USERS}, {MSSQL_TABLE_REDIS_SERVER}, {MSSQL_TABLE_CANVAS_CACHE}, {MSSQL_TABLE_PYTHON_SERVER}) 생성 확인", tbl_cnt == "4", tbl_cnt)
+        tbl_cnt = run_query(f"SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME IN ('{MSSQL_TABLE_USERS}', '{MSSQL_TABLE_REDIS_SERVER}', '{MSSQL_TABLE_CANVAS_INFO}', '{MSSQL_TABLE_PYTHON_SERVER}');")
+        record_test(f"환경변수 지정 테이블({MSSQL_TABLE_USERS}, {MSSQL_TABLE_REDIS_SERVER}, {MSSQL_TABLE_CANVAS_INFO}, {MSSQL_TABLE_PYTHON_SERVER}) 생성 확인", tbl_cnt == "4", tbl_cnt)
 
         # (1-3) 회원 테이블(users) CRUD
         test_email = "test_py_user@agora.com"
@@ -129,28 +129,31 @@ def test_mssql():
         u_del = run_query(f"SELECT COUNT(*) FROM [{MSSQL_TABLE_USERS}] WHERE email = '{test_email}';")
         record_test(f"회원 테이블({MSSQL_TABLE_USERS}) 데이터 삭제 [Delete] 성공 (클린업 완료)", u_del == "0", u_del)
 
-        # (1-4) 캐시 및 Redis 서버 테이블 CRUD
+        # (1-4) 캔버스 정보 및 Redis 서버 테이블 CRUD
         test_cache_redis_ip = "127.0.0.99"
         test_cache_redis_port = "6399"
+        run_query(f"INSERT INTO [{MSSQL_TABLE_USERS}] (email, nickname, role, status) VALUES ('canvas_py_owner@agora.com', N'CanvasPyOwner', 'ROLE_USER', 'ACTIVE');")
+        owner_uid = run_query(f"SELECT user_id FROM [{MSSQL_TABLE_USERS}] WHERE email = 'canvas_py_owner@agora.com';")
         run_query(f"INSERT INTO [{MSSQL_TABLE_REDIS_SERVER}] (redis_ip, redis_port) VALUES ('{test_cache_redis_ip}', '{test_cache_redis_port}');")
-        run_query(f"INSERT INTO [{MSSQL_TABLE_CANVAS_CACHE}] (canvas_id, canvas_name, redis_ip, redis_port, is_cached) VALUES (8888, N'test-py-canvas', '{test_cache_redis_ip}', '{test_cache_redis_port}', 0);")
-        ins_cnt = run_query(f"SELECT COUNT(*) FROM [{MSSQL_TABLE_CANVAS_CACHE}] WHERE canvas_id = 8888;")
-        record_test(f"캐시 테이블({MSSQL_TABLE_REDIS_SERVER}, {MSSQL_TABLE_CANVAS_CACHE}) 데이터 삽입 [Create] 성공 (canvas_id: 8888)", ins_cnt == "1", ins_cnt)
+        run_query(f"INSERT INTO [{MSSQL_TABLE_CANVAS_INFO}] (canvas_id, canvas_name, redis_ip, redis_port, user_id, is_cached) VALUES (8888, N'test-py-canvas', '{test_cache_redis_ip}', '{test_cache_redis_port}', {owner_uid}, 0);")
+        ins_cnt = run_query(f"SELECT COUNT(*) FROM [{MSSQL_TABLE_CANVAS_INFO}] WHERE canvas_id = 8888;")
+        record_test(f"캔버스 정보 테이블({MSSQL_TABLE_CANVAS_INFO}) 데이터 삽입 [Create] 성공 (canvas_id: 8888, user_id FK 연동)", ins_cnt == "1", ins_cnt)
 
         # (1-5) 데이터 조회 [Read]
-        read_val = run_query(f"SELECT is_cached FROM [{MSSQL_TABLE_CANVAS_CACHE}] WHERE canvas_id = 8888;")
-        record_test(f"캐시 테이블({MSSQL_TABLE_CANVAS_CACHE}) 데이터 조회 [Read] 성공 (is_cached: 0)", read_val == "0", read_val)
+        read_val = run_query(f"SELECT is_cached FROM [{MSSQL_TABLE_CANVAS_INFO}] WHERE canvas_id = 8888;")
+        record_test(f"캔버스 정보 테이블({MSSQL_TABLE_CANVAS_INFO}) 데이터 조회 [Read] 성공 (is_cached: 0)", read_val == "0", read_val)
 
         # (1-6) 데이터 수정 [Update]
-        run_query(f"UPDATE [{MSSQL_TABLE_CANVAS_CACHE}] SET is_cached = 1 WHERE canvas_id = 8888;")
-        upd_val = run_query(f"SELECT is_cached FROM [{MSSQL_TABLE_CANVAS_CACHE}] WHERE canvas_id = 8888;")
-        record_test(f"캐시 테이블({MSSQL_TABLE_CANVAS_CACHE}) 데이터 수정 [Update] 성공 (is_cached: 0 -> 1)", upd_val == "1", upd_val)
+        run_query(f"UPDATE [{MSSQL_TABLE_CANVAS_INFO}] SET is_cached = 1 WHERE canvas_id = 8888;")
+        upd_val = run_query(f"SELECT is_cached FROM [{MSSQL_TABLE_CANVAS_INFO}] WHERE canvas_id = 8888;")
+        record_test(f"캔버스 정보 테이블({MSSQL_TABLE_CANVAS_INFO}) 데이터 수정 [Update] 성공 (is_cached: 0 -> 1)", upd_val == "1", upd_val)
 
         # (1-7) 데이터 삭제 [Delete] (클린업)
-        run_query(f"DELETE FROM [{MSSQL_TABLE_CANVAS_CACHE}] WHERE canvas_id = 8888;")
+        run_query(f"DELETE FROM [{MSSQL_TABLE_CANVAS_INFO}] WHERE canvas_id = 8888;")
+        run_query(f"DELETE FROM [{MSSQL_TABLE_USERS}] WHERE email = 'canvas_py_owner@agora.com';")
         run_query(f"DELETE FROM [{MSSQL_TABLE_REDIS_SERVER}] WHERE redis_ip = '{test_cache_redis_ip}' AND redis_port = '{test_cache_redis_port}';")
-        del_cnt = run_query(f"SELECT COUNT(*) FROM [{MSSQL_TABLE_CANVAS_CACHE}] WHERE canvas_id = 8888;")
-        record_test(f"캐시 테이블({MSSQL_TABLE_CANVAS_CACHE}, {MSSQL_TABLE_REDIS_SERVER}) 데이터 삭제 [Delete] 성공 (클린업 완료)", del_cnt == "0", del_cnt)
+        del_cnt = run_query(f"SELECT COUNT(*) FROM [{MSSQL_TABLE_CANVAS_INFO}] WHERE canvas_id = 8888;")
+        record_test(f"캔버스 정보 테이블({MSSQL_TABLE_CANVAS_INFO}, {MSSQL_TABLE_REDIS_SERVER}) 데이터 삭제 [Delete] 성공 (클린업 완료)", del_cnt == "0", del_cnt)
 
         # (1-8) Python 서버 테이블 CRUD
         test_py_ip = "127.0.0.1"

@@ -2,7 +2,7 @@
 -- Agora MS SQL Server Database & Schema Initialization
 -- sqlcmd 변수 사용:
 --   $(DB_NAME), $(DB_USER), $(DB_PASSWORD)
---   $(TABLE_USERS), $(TABLE_REDIS_SERVER), $(TABLE_CANVAS_CACHE), $(TABLE_PYTHON_SERVER)
+--   $(TABLE_USERS), $(TABLE_REDIS_SERVER), $(TABLE_PYTHON_SERVER), $(TABLE_CANVAS_INFO)
 -- ==============================================================================
 
 SET ANSI_NULLS ON;
@@ -100,59 +100,8 @@ BEGIN
 END
 GO
 
--- 8. 캔버스 캐시 확인 테이블 (PK: canvas_id, FK: redis_server, FK: python_server)
-IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = '$(TABLE_CANVAS_CACHE)')
-BEGIN
-    CREATE TABLE [$(TABLE_CANVAS_CACHE)] (
-        canvas_id   INT           NOT NULL,              -- 캔버스 고유 ID (기본키)
-        canvas_name NVARCHAR(255) NOT NULL,              -- 캔버스 이름 (공백 불가)
-        redis_ip    VARCHAR(45)   NULL,                  -- Redis IP 주소 (NULL 가능)
-        redis_port  VARCHAR(10)   NULL,                  -- Redis 포트 번호 (NULL 가능)
-        server_ip   VARCHAR(45)   NULL,                  -- Python 서버 IP 주소 (NULL 가능)
-        server_port VARCHAR(10)   NULL,                  -- Python 서버 포트 번호 (NULL 가능)
-        is_cached   BIT           NOT NULL DEFAULT 0,     -- 캐시 여부 (NULL 불가, 0: False, 1: True)
-        created_at  DATETIME2     NOT NULL DEFAULT SYSUTCDATETIME(),
-        updated_at  DATETIME2     NOT NULL DEFAULT SYSUTCDATETIME(),
-        CONSTRAINT [PK_$(TABLE_CANVAS_CACHE)] PRIMARY KEY CLUSTERED (canvas_id),
-        CONSTRAINT [CK_$(TABLE_CANVAS_CACHE)_name] CHECK (LEN(LTRIM(RTRIM(canvas_name))) > 0),
-        CONSTRAINT [FK_$(TABLE_CANVAS_CACHE)_$(TABLE_REDIS_SERVER)] FOREIGN KEY (redis_ip, redis_port)
-            REFERENCES [$(TABLE_REDIS_SERVER)] (redis_ip, redis_port)
-            ON DELETE SET NULL
-            ON UPDATE CASCADE,
-        CONSTRAINT [FK_$(TABLE_CANVAS_CACHE)_$(TABLE_PYTHON_SERVER)] FOREIGN KEY (server_ip, server_port)
-            REFERENCES [$(TABLE_PYTHON_SERVER)] (server_ip, server_port)
-            ON DELETE SET NULL
-            ON UPDATE CASCADE
-    );
-END
-ELSE
-BEGIN
-    IF COL_LENGTH('$(TABLE_CANVAS_CACHE)', 'server_ip') IS NULL
-    BEGIN
-        ALTER TABLE [$(TABLE_CANVAS_CACHE)] ADD server_ip VARCHAR(45) NULL;
-    END;
-    IF COL_LENGTH('$(TABLE_CANVAS_CACHE)', 'server_port') IS NULL
-    BEGIN
-        ALTER TABLE [$(TABLE_CANVAS_CACHE)] ADD server_port VARCHAR(10) NULL;
-    END;
-    IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_$(TABLE_CANVAS_CACHE)_$(TABLE_PYTHON_SERVER)')
-    BEGIN
-        ALTER TABLE [$(TABLE_CANVAS_CACHE)] ADD CONSTRAINT [FK_$(TABLE_CANVAS_CACHE)_$(TABLE_PYTHON_SERVER)]
-            FOREIGN KEY (server_ip, server_port)
-            REFERENCES [$(TABLE_PYTHON_SERVER)] (server_ip, server_port)
-            ON DELETE SET NULL
-            ON UPDATE CASCADE;
-    END;
-END
-GO
-
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_$(TABLE_CANVAS_CACHE)_is_cached' AND object_id = OBJECT_ID('$(TABLE_CANVAS_CACHE)'))
-BEGIN
-    CREATE NONCLUSTERED INDEX [IX_$(TABLE_CANVAS_CACHE)_is_cached] ON [$(TABLE_CANVAS_CACHE)] (is_cached);
-END
-GO
-
--- 9. 회원 테이블 (PK: user_id, UQ: email, 인덱스: oauth, nickname)
+-- 8. 회원 테이블 (PK: user_id, UQ: email, 인덱스: oauth, nickname)
+-- 캔버스 정보 테이블의 user_id 외래키 참조를 위해 먼저 생성
 IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = '$(TABLE_USERS)')
 BEGIN
     CREATE TABLE [$(TABLE_USERS)] (
@@ -190,6 +139,96 @@ GO
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_$(TABLE_USERS)_Nickname' AND object_id = OBJECT_ID('$(TABLE_USERS)'))
 BEGIN
     CREATE NONCLUSTERED INDEX [IX_$(TABLE_USERS)_Nickname] ON [$(TABLE_USERS)] (nickname);
+END
+GO
+
+-- 9. 캔버스 정보 테이블 (PK: canvas_id, FK: redis_server, FK: python_server, FK: users)
+-- 기존 canvas_cache 테이블이 존재하고 신규 테이블명($(TABLE_CANVAS_INFO))과 다를 경우 처리
+IF EXISTS (SELECT 1 FROM sys.tables WHERE name = 'canvas_cache')
+   AND NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = '$(TABLE_CANVAS_INFO)')
+BEGIN
+    IF (SELECT COUNT(*) FROM [canvas_cache]) = 0
+    BEGIN
+        DROP TABLE [canvas_cache];
+    END
+    ELSE
+    BEGIN
+        EXEC sp_rename 'canvas_cache', '$(TABLE_CANVAS_INFO)';
+    END
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = '$(TABLE_CANVAS_INFO)')
+BEGIN
+    CREATE TABLE [$(TABLE_CANVAS_INFO)] (
+        canvas_id   INT           NOT NULL,              -- 캔버스 고유 ID (기본키)
+        canvas_name NVARCHAR(255) NOT NULL,              -- 캔버스 이름 (공백 불가)
+        redis_ip    VARCHAR(45)   NULL,                  -- Redis IP 주소 (NULL 가능)
+        redis_port  VARCHAR(10)   NULL,                  -- Redis 포트 번호 (NULL 가능)
+        server_ip   VARCHAR(45)   NULL,                  -- Python 서버 IP 주소 (NULL 가능)
+        server_port VARCHAR(10)   NULL,                  -- Python 서버 포트 번호 (NULL 가능)
+        user_id     INT           NOT NULL,              -- 캔버스 어드민 계정 (NULL 불가, FK)
+        is_cached   BIT           NOT NULL DEFAULT 0,     -- 캐시 여부 (NULL 불가, 0: False, 1: True)
+        created_at  DATETIME2     NOT NULL DEFAULT SYSUTCDATETIME(),
+        updated_at  DATETIME2     NOT NULL DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT [PK_$(TABLE_CANVAS_INFO)] PRIMARY KEY CLUSTERED (canvas_id),
+        CONSTRAINT [CK_$(TABLE_CANVAS_INFO)_name] CHECK (LEN(LTRIM(RTRIM(canvas_name))) > 0),
+        CONSTRAINT [FK_$(TABLE_CANVAS_INFO)_$(TABLE_REDIS_SERVER)] FOREIGN KEY (redis_ip, redis_port)
+            REFERENCES [$(TABLE_REDIS_SERVER)] (redis_ip, redis_port)
+            ON DELETE SET NULL
+            ON UPDATE CASCADE,
+        CONSTRAINT [FK_$(TABLE_CANVAS_INFO)_$(TABLE_PYTHON_SERVER)] FOREIGN KEY (server_ip, server_port)
+            REFERENCES [$(TABLE_PYTHON_SERVER)] (server_ip, server_port)
+            ON DELETE SET NULL
+            ON UPDATE CASCADE,
+        CONSTRAINT [FK_$(TABLE_CANVAS_INFO)_$(TABLE_USERS)] FOREIGN KEY (user_id)
+            REFERENCES [$(TABLE_USERS)] (user_id)
+            ON DELETE CASCADE
+            ON UPDATE CASCADE
+    );
+END
+ELSE
+BEGIN
+    IF COL_LENGTH('$(TABLE_CANVAS_INFO)', 'server_ip') IS NULL
+    BEGIN
+        ALTER TABLE [$(TABLE_CANVAS_INFO)] ADD server_ip VARCHAR(45) NULL;
+    END;
+    IF COL_LENGTH('$(TABLE_CANVAS_INFO)', 'server_port') IS NULL
+    BEGIN
+        ALTER TABLE [$(TABLE_CANVAS_INFO)] ADD server_port VARCHAR(10) NULL;
+    END;
+    IF COL_LENGTH('$(TABLE_CANVAS_INFO)', 'user_id') IS NULL
+    BEGIN
+        ALTER TABLE [$(TABLE_CANVAS_INFO)] ADD user_id INT NULL;
+    END;
+    IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_$(TABLE_CANVAS_INFO)_$(TABLE_PYTHON_SERVER)')
+    BEGIN
+        ALTER TABLE [$(TABLE_CANVAS_INFO)] ADD CONSTRAINT [FK_$(TABLE_CANVAS_INFO)_$(TABLE_PYTHON_SERVER)]
+            FOREIGN KEY (server_ip, server_port)
+            REFERENCES [$(TABLE_PYTHON_SERVER)] (server_ip, server_port)
+            ON DELETE SET NULL
+            ON UPDATE CASCADE;
+    END;
+    IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_$(TABLE_CANVAS_INFO)_$(TABLE_USERS)')
+    BEGIN
+        ALTER TABLE [$(TABLE_CANVAS_INFO)] ADD CONSTRAINT [FK_$(TABLE_CANVAS_INFO)_$(TABLE_USERS)]
+            FOREIGN KEY (user_id)
+            REFERENCES [$(TABLE_USERS)] (user_id)
+            ON DELETE CASCADE
+            ON UPDATE CASCADE;
+    END;
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_$(TABLE_CANVAS_INFO)_is_cached' AND object_id = OBJECT_ID('$(TABLE_CANVAS_INFO)'))
+BEGIN
+    CREATE NONCLUSTERED INDEX [IX_$(TABLE_CANVAS_INFO)_is_cached] ON [$(TABLE_CANVAS_INFO)] (is_cached);
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_$(TABLE_CANVAS_INFO)_user_id' AND object_id = OBJECT_ID('$(TABLE_CANVAS_INFO)'))
+BEGIN
+    CREATE NONCLUSTERED INDEX [IX_$(TABLE_CANVAS_INFO)_user_id] ON [$(TABLE_CANVAS_INFO)] (user_id);
 END
 GO
 

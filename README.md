@@ -2,7 +2,7 @@
 
 아고라(Agora) 프로젝트의 데이터베이스 인프라 구축, 스키마/인덱스 설정 및 검증 가이드입니다.
 
-- **MS SQL Server**: 회원 정보, 서버 인스턴스 정보 및 캔버스 캐시 메타데이터 영구 관리
+- **MS SQL Server**: 회원 정보, 서버 인스턴스 정보 및 캔버스 메타데이터 영구 관리
 - **Elasticsearch**: 캔버스 및 캔버스 내 아이템 검색/저장용 분산 검색 엔진
 - **Redis Stack**: RedisJSON 및 RediSearch를 이용한 인메모리 캔버스 캐시, 실시간 검색 및 RedisInsight 모니터링
 
@@ -102,7 +102,7 @@ docker compose ps
 
 ### (1) MS SQL 사용자 생성, 데이터베이스 소유권 부여 및 테이블 생성
 - 일반 사용자(`agora_user`)에게 `agora_db`의 `dbo` 소유권을 부여하여 불필요한 sa 권한 노출 없이 운영할 수 있도록 구성합니다.
-- 테이블명(`users`, `redis_server`, `canvas_cache`, `python_server`)은 `.env`에서 변경할 수 있습니다.
+- 테이블명(`users`, `redis_server`, `canvas_info`, `python_server`)은 `.env`에서 변경할 수 있습니다.
 
 ```bash
 ./mssql/init-mssql.sh
@@ -113,7 +113,7 @@ docker compose ps
 docker exec -i agora-mssql /opt/mssql-tools18/bin/sqlcmd \
   -S localhost -U sa -P 'AgoraStrong@Passw0rd!2026' -C -I \
   -v DB_NAME='agora_db' -v DB_USER='agora_user' -v DB_PASSWORD='AgoraUserSecret@Passw0rd!2026' \
-     TABLE_USERS='users' TABLE_REDIS_SERVER='redis_server' TABLE_CANVAS_CACHE='canvas_cache' \
+     TABLE_USERS='users' TABLE_REDIS_SERVER='redis_server' TABLE_CANVAS_INFO='canvas_info' \
      TABLE_PYTHON_SERVER='python_server' \
   < mssql/init-mssql.sql
 ```
@@ -170,13 +170,14 @@ docker exec -i agora-mssql /opt/mssql-tools18/bin/sqlcmd \
 - `redis_port`: `VARCHAR(10) NOT NULL`
 - `created_at`: `DATETIME2 NOT NULL DEFAULT SYSDATETIME()`
 
-#### `canvas_cache` (캔버스 캐시 상태 확인)
+#### `canvas_info` (캔버스 메타데이터 및 상태 관리)
 - `canvas_id`: `INT` (PK)
 - `canvas_name`: `NVARCHAR(255) NOT NULL` (공백 불가)
 - `redis_ip`: `VARCHAR(45) NULL` (FK: `redis_server(redis_ip, redis_port)`)
 - `redis_port`: `VARCHAR(10) NULL` (FK: `redis_server(redis_ip, redis_port)`)
 - `server_ip`: `VARCHAR(45) NULL` (FK: `python_server(server_ip, server_port)`)
 - `server_port`: `VARCHAR(10) NULL` (FK: `python_server(server_ip, server_port)`)
+- `user_id`: `INT NOT NULL` (FK: `users(user_id)`, 캔버스 어드민 계정)
 - `is_cached`: `BIT NOT NULL DEFAULT 0`
 - `created_at`: `DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()`
 - `updated_at`: `DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()`
@@ -246,15 +247,15 @@ python3 tests/test_storages.py
 | 저장소 | 대상 계정 | 번호 | 검증 항목 | 상세 내용 |
 | :--- | :--- | :---: | :--- | :--- |
 | **MS SQL** | `agora_user` | 1 | 계정 인증 및 DB 소유권 | `agora_db`에 대한 `dbo` 소유권 확인 |
-| | | 2 | 테이블 생성 확인 | `users`, `redis_server`, `canvas_cache`, `python_server` 존재 여부 |
+| | | 2 | 테이블 생성 확인 | `users`, `redis_server`, `canvas_info`, `python_server` 존재 여부 |
 | | | 3 | 회원 [Create] | `users` 테이블 테스트 회원 INSERT |
 | | | 4 | 회원 [Read] | 회원 조회 및 `status = 'ACTIVE'` 확인 |
 | | | 5 | 회원 [Update] | 회원 `status`를 `SUSPENDED`로 수정 확인 |
 | | | 6 | 회원 [Delete] | 테스트 회원 데이터 삭제 (클린업) |
-| | | 7 | 캐시/Redis [Create] | `redis_server` 및 `canvas_cache` (PK: 9999) INSERT |
-| | | 8 | 캐시 [Read] | `canvas_cache` 조회 및 `is_cached = 0` 확인 |
-| | | 9 | 캐시 [Update] | `canvas_cache`의 `is_cached`를 `1`로 수정 확인 |
-| | | 10 | 캐시/Redis [Delete] | 캐시 및 Redis 서버 테스트 데이터 삭제 (클린업) |
+| | | 7 | 캔버스/Redis [Create] | `redis_server` 및 `canvas_info` (PK: 9999, `user_id` 연동) INSERT |
+| | | 8 | 캔버스 [Read] | `canvas_info` 조회 및 `is_cached = 0` 확인 |
+| | | 9 | 캔버스 [Update] | `canvas_info`의 `is_cached`를 `1`로 수정 확인 |
+| | | 10 | 캔버스/Redis [Delete] | 캔버스 정보 및 Redis 서버 테스트 데이터 삭제 (클린업) |
 | | | 11 | Python 서버 [Create] | `python_server` 테이블 테스트 서버 인스턴스 INSERT |
 | | | 12 | Python 서버 [Read] | Python 서버 포트(8000) 조회 확인 |
 | | | 13 | Python 서버 [Update] | Python 서버 포트(8000 -> 8080) 수정 확인 |
