@@ -309,7 +309,10 @@ echo ""
 echo -e "${YELLOW}[3/3] Redis Stack 사용자 CRUD/Search/Scope 테스트${NC}"
 
 if [ -f "$ROOT_DIR/redis/.env" ]; then
-  REDIS_RAW_HOST=$(grep -v '^#' "$ROOT_DIR/redis/.env" | grep 'REDIS_EXTERNAL_IP=' | cut -d '=' -f2- | tr -d '\r' || echo "127.0.0.1")
+  REDIS_RAW_HOST=$(grep -v '^#' "$ROOT_DIR/redis/.env" | grep 'REDIS_BIND_IP=' | cut -d '=' -f2- | tr -d '\r' || true)
+  if [ -z "$REDIS_RAW_HOST" ]; then
+    REDIS_RAW_HOST=$(grep -v '^#' "$ROOT_DIR/redis/.env" | grep 'REDIS_EXTERNAL_IP=' | cut -d '=' -f2- | tr -d '\r' || echo "127.0.0.1")
+  fi
   if [ "$REDIS_RAW_HOST" = "0.0.0.0" ]; then
     REDIS_HOST="127.0.0.1"
   else

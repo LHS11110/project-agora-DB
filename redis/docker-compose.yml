@@ -13,8 +13,8 @@ services:
       - REDIS_KEY_PREFIX=${REDIS_KEY_PREFIX:-canvas:}
       - TZ=${TIMEZONE:-Asia/Seoul}
     ports:
-      # 외부 접속 바인딩 (.env의 REDIS_EXTERNAL_IP, REDIS_EXTERNAL_PORT 설정 반영)
-      - "${REDIS_EXTERNAL_IP:-0.0.0.0}:${REDIS_EXTERNAL_PORT:-${REDIS_PORT:-6379}}:6379"
+      # 호스트 포트 바인딩 (.env의 REDIS_BIND_IP, REDIS_EXTERNAL_PORT 설정 반영)
+      - "${REDIS_BIND_IP:-0.0.0.0}:${REDIS_EXTERNAL_PORT:-${REDIS_PORT:-6379}}:6379"
       - "${REDIS_INSIGHT_PORT:-8001}:8001"
     volumes:
       - redis_data:/data

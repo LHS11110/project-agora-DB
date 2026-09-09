@@ -53,14 +53,15 @@ cp mssql/.env.example mssql/.env
 
 ### 📊 서비스별 기본 포트 및 환경 변수
 
-| 서비스 | 기본 컨테이너 내부 포트 | 호스트 노출 포트 (기본값) | 외부 바인딩 IP 설정 | 주요 계정 및 기본 DB / 인덱스 |
-| :--- | :--- | :--- | :--- | :--- |
-| **MS SQL** | `1433` | `1433` | `MSSQL_EXTERNAL_IP` (`0.0.0.0`) | `sa` (관리자)<br>`agora_user` (일반 사용자, `dbo` 권한)<br>DB: `agora_db` |
-| **Elasticsearch** | `9200` | `9200` | `ES_EXTERNAL_IP` (`127.0.0.1`) | `elastic` (슈퍼유저)<br>`agora_user` (인덱스 전용 계정)<br>Index: `canvas` |
-| **Redis Stack** | `6379`<br>`8001` (Insight) | `6379`<br>`8001` | `REDIS_EXTERNAL_IP` (`127.0.0.1`) | `default` (관리자 암호 보호)<br>`agora_user` (ACL 계정, `canvas:*` 권한)<br>Index: `idx:canvas` |
+| 서비스 | 기본 컨테이너 내부 포트 | 호스트 노출 포트 (기본값) | 호스트 바인딩 IP 설정 | MS SQL 등록 / 외부 접속 IP | 주요 계정 및 기본 DB / 인덱스 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **MS SQL** | `1433` | `1433` | `MSSQL_EXTERNAL_IP` (`0.0.0.0`) | - | `sa` (관리자)<br>`agora_user` (일반 사용자, `dbo` 권한)<br>DB: `agora_db` |
+| **Elasticsearch** | `9200` | `9200` | `ES_EXTERNAL_IP` (`127.0.0.1`) | - | `elastic` (슈퍼유저)<br>`agora_user` (인덱스 전용 계정)<br>Index: `canvas` |
+| **Redis Stack** | `6379`<br>`8001` (Insight) | `6379`<br>`8001` | `REDIS_BIND_IP` (`0.0.0.0`) | `REDIS_EXTERNAL_IP` (`127.0.0.1`) | `default` (관리자 암호 보호)<br>`agora_user` (ACL 계정, `canvas:*` 권한)<br>Index: `idx:canvas` |
 
 > [!TIP]
-> 모든 서비스는 `.env`에서 `*_EXTERNAL_IP`와 `*_EXTERNAL_PORT`를 지정하여 외부 네트워크 바인딩 주소 및 포트를 자유롭게 변경할 수 있습니다.
+> - **바인딩 IP vs MS SQL 등록 IP 분리**: AWS EC2 등 클라우드/NAT 환경에서는 호스트 OS에 공인 IP가 직접 바인딩되지 않아 공인 IP로 포트 바인딩 시 `cannot assign requested address` 에러가 발생합니다.
+> - 따라서 Redis의 Docker 호스트 포트 수신 바인딩은 `REDIS_BIND_IP=0.0.0.0`으로 설정하고, MS SQL(`redis_server` 테이블)에 등록하여 외부 클라이언트가 찾아갈 공인 IP는 `REDIS_EXTERNAL_IP`로 명확하게 역할을 나누어 설정합니다.
 
 ---
 
@@ -128,7 +129,7 @@ docker exec -i agora-mssql /opt/mssql-tools18/bin/sqlcmd \
 ### (3) Redis Stack ACL 사용자 생성, RediSearch 인덱스 생성 및 MS SQL 자동 등록
 - Redis ACL을 통해 일반 사용자(`agora_user`)에게 `canvas:*` 키 네임스페이스 및 RedisJSON/RediSearch 실행 권한만 최소 부여합니다.
 - JSON 타입의 `idx:canvas` RediSearch 인덱스를 생성합니다.
-- 초기화 완료 시 `redis/.env`에 지정된 외부 IP와 포트를 MS SQL Server의 `redis_server` 테이블에 자동으로 등록합니다 (중복 등록 방지 처리 포함).
+- 초기화 완료 시 `redis/.env`에 지정된 외부 접속 IP(`REDIS_EXTERNAL_IP`)와 외부 포트(`REDIS_EXTERNAL_PORT`)를 MS SQL Server의 `redis_server` 테이블에 자동으로 등록합니다 (중복 등록 방지 처리 포함).
 
 ```bash
 ./redis/init-redis.sh

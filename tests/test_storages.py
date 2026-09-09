@@ -63,7 +63,7 @@ ES_USER = es_env.get("ES_USER_NAME", "agora_user")
 ES_PASS = es_env.get("ES_USER_PASSWORD", "AgoraUserSecret@Passw0rd!2026")
 
 # Redis 설정
-redis_raw_host = redis_env.get("REDIS_EXTERNAL_IP", "127.0.0.1")
+redis_raw_host = redis_env.get("REDIS_BIND_IP", redis_env.get("REDIS_EXTERNAL_IP", "127.0.0.1"))
 REDIS_HOST = "127.0.0.1" if redis_raw_host == "0.0.0.0" else redis_raw_host
 REDIS_PORT = redis_env.get("REDIS_EXTERNAL_PORT", redis_env.get("REDIS_PORT", "6379"))
 REDIS_USER = redis_env.get("REDIS_USER", "agora_user")

@@ -15,12 +15,15 @@ elif [ -f .env ]; then
   export $(grep -v '^#' .env | xargs)
 fi
 
+REDIS_BIND_IP="${REDIS_BIND_IP:-0.0.0.0}"
 REDIS_EXTERNAL_IP="${REDIS_EXTERNAL_IP:-127.0.0.1}"
 REDIS_EXTERNAL_PORT="${REDIS_EXTERNAL_PORT:-${REDIS_PORT:-6379}}"
-if [ "$REDIS_EXTERNAL_IP" = "0.0.0.0" ]; then
+
+# 로컬 스크립트 실행 시 접속 호스트 결정 (0.0.0.0 바인딩인 경우 로컬 루프백 127.0.0.1 접속)
+if [ "$REDIS_BIND_IP" = "0.0.0.0" ]; then
   REDIS_HOST="127.0.0.1"
 else
-  REDIS_HOST="$REDIS_EXTERNAL_IP"
+  REDIS_HOST="$REDIS_BIND_IP"
 fi
 REDIS_PORT="$REDIS_EXTERNAL_PORT"
 REDIS_ADMIN_PASS="${REDIS_PASSWORD:-AgoraRedisSecret@Passw0rd!2026}"
