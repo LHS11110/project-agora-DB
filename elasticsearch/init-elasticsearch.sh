@@ -1,7 +1,7 @@
 #!/bin/bash
 # ==============================================================================
 # Agora Elasticsearch Database & User Initialization Script
-# .env 설정을 기반으로 인덱스 전용 역할 및 사용자 생성, 인덱스 매핑 구성 및 데이터 등록
+# .env 설정을 기반으로 인덱스 전용 역할 및 사용자 생성, 인덱스 매핑 구성 (샘플 데이터 제외)
 # ==============================================================================
 
 set -e
@@ -129,45 +129,11 @@ else
       }
     }
   }'
-  echo -e "\n[OK] 인덱스($INDEX_NAME) 생성 완료"
+  echo -e "\n[OK] 인덱스($INDEX_NAME) 매핑 생성 완료 (초기 데이터 미삽입)"
 fi
 
-CANVAS_NAME="Agora Architecture Canvas"
-ENCODED_DOC_ID="${CANVAS_NAME// /%20}"
-
-echo -e "\n=== 4. 샘플 캔버스 도큐먼트 등록 (ID: $CANVAS_NAME) ==="
-
-curl -s -f -u "$ES_SUPER_USER:$ES_SUPER_PASS" -X PUT "$ES_HOST/$INDEX_NAME/_doc/$ENCODED_DOC_ID" \
-     -H 'Content-Type: application/json' \
-     -d '{
-  "canvas-name": "Agora Architecture Canvas",
-  "canvas-id": 1,
-  "admin": 1000,
-  "peoples": [1000, 1001, 1002, 1003],
-  "inner-group": {
-    "group-name1": [1001, 1002],
-    "group-name2": [1003],
-    "init-group-name": [1001, 1002, 1003],
-    "admin-group": [1000]
-  },
-  "items": {
-    "item-name1": {
-      "type": 1,
-      "pos": [120.5, 340.8],
-      "data1": "memo text",
-      "permission": {
-        "admin-group": 7,
-        "group-name1": 5,
-        "group-name2": 1
-      }
-    }
-  },
-  "init-group": "init-group-name"
-}'
-echo -e "\n[OK] 도큐먼트 등록 완료"
-
-echo -e "\n=== 5. 신규 사용자($ES_USER) 인증 및 인덱스($INDEX_NAME) 조회 권한 검증 ==="
-curl -s -f -u "$ES_USER:$ES_USER_PASS" -X GET "$ES_HOST/$INDEX_NAME/_doc/$ENCODED_DOC_ID?pretty"
+echo -e "\n=== 4. 신규 사용자($ES_USER) 인증 및 인덱스($INDEX_NAME) 메타데이터 접근 검증 ==="
+curl -s -f -u "$ES_USER:$ES_USER_PASS" -X GET "$ES_HOST/$INDEX_NAME?pretty" | head -n 15
 echo ""
 
 echo -e "\n[SUCCESS] Elasticsearch 인덱스($INDEX_NAME) 및 소유 사용자($ES_USER) 초기화가 완료되었습니다."

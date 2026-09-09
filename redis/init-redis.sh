@@ -1,7 +1,7 @@
 #!/bin/bash
 # ==============================================================================
 # Redis Stack (RedisJSON + RediSearch) Database & User Initialization Script
-# .env 설정을 기반으로 일반 사용자 ACL 계정 생성, 인덱스 생성 및 샘플 데이터 등록
+# .env 설정을 기반으로 일반 사용자 ACL 계정 생성, 인덱스 생성 (샘플 데이터 제외)
 # ==============================================================================
 
 set -e
@@ -20,6 +20,8 @@ REDIS_PORT="${REDIS_PORT:-6379}"
 REDIS_ADMIN_PASS="${REDIS_PASSWORD:-AgoraRedisSecret@Passw0rd!2026}"
 REDIS_USER="${REDIS_USER:-agora_user}"
 REDIS_USER_PASS="${REDIS_USER_PASSWORD:-AgoraUserSecret@Passw0rd!2026}"
+REDIS_INDEX_NAME="${REDIS_INDEX_NAME:-idx:canvas}"
+REDIS_KEY_PREFIX="${REDIS_KEY_PREFIX:-canvas:}"
 
 # redis-cli 실행 래퍼 함수 (로컬 redis-cli 우선, 없으면 docker exec fallback)
 if command -v redis-cli &> /dev/null; then
@@ -39,55 +41,26 @@ else
 fi
 
 echo "=== 1. Redis ACL 사용자 ($REDIS_USER) 생성 및 권한 부여 ==="
-run_admin_cli ACL SETUSER "$REDIS_USER" on ">$REDIS_USER_PASS" '~*' '&*' '+@all'
-echo "[OK] 사용자($REDIS_USER) ACL 생성 완료"
+# 네임스페이스(~${REDIS_KEY_PREFIX}*) 및 인덱스(~${REDIS_INDEX_NAME}*)에 한해 CRUD 및 검색 전체 권한 부여
+run_admin_cli ACL SETUSER "$REDIS_USER" reset on ">$REDIS_USER_PASS" "~${REDIS_KEY_PREFIX}*" "~${REDIS_INDEX_NAME}*" '&*' '+@all'
+echo "[OK] 사용자($REDIS_USER) ACL 생성 완료 (허용 대상: ~${REDIS_KEY_PREFIX}*, ~${REDIS_INDEX_NAME}*)"
 
-echo -e "\n=== 2. Redis Stack RediSearch 인덱스 (idx:canvas) 생성 ==="
+echo -e "\n=== 2. Redis Stack RediSearch 인덱스 ($REDIS_INDEX_NAME) 생성 ==="
 # 인덱스가 이미 존재하는지 확인
-if run_admin_cli FT._LIST | grep -q "^idx:canvas$"; then
-  echo "인덱스(idx:canvas)가 이미 존재합니다. 생성을 건너뜁니다."
+if run_admin_cli FT._LIST | grep -q "^${REDIS_INDEX_NAME}$"; then
+  echo "인덱스(${REDIS_INDEX_NAME})가 이미 존재합니다. 생성을 건너뜁니다."
 else
-  run_admin_cli FT.CREATE idx:canvas ON JSON PREFIX 1 "canvas:" SCHEMA \
+  run_admin_cli FT.CREATE "$REDIS_INDEX_NAME" ON JSON PREFIX 1 "$REDIS_KEY_PREFIX" SCHEMA \
       '$["canvas-name"]' AS canvas_name TEXT SORTABLE \
       '$["canvas-id"]' AS canvas_id NUMERIC SORTABLE \
       '$.admin' AS admin NUMERIC \
       '$.peoples[*]' AS peoples NUMERIC \
       '$["init-group"]' AS init_group TAG
-  echo "[OK] RediSearch 인덱스(idx:canvas) 생성 완료"
+  echo "[OK] RediSearch 인덱스($REDIS_INDEX_NAME) 생성 완료 (초기 데이터 미삽입)"
 fi
 
-echo -e "\n=== 3. RedisJSON 샘플 캔버스 데이터 저장 (Key: canvas:1) ==="
-run_admin_cli JSON.SET canvas:1 $ '{
-  "canvas-name": "Agora Architecture Canvas",
-  "canvas-id": 1,
-  "admin": 1000,
-  "peoples": [1000, 1001, 1002, 1003],
-  "inner-group": {
-    "group-name1": [1001, 1002],
-    "group-name2": [1003],
-    "init-group-name": [1001, 1002, 1003],
-    "admin-group": [1000]
-  },
-  "items": {
-    "item-name1": {
-      "type": 1,
-      "pos": [120.5, 340.8],
-      "data1": "sample data",
-      "permission": {
-        "admin-group": 7,
-        "group-name1": 5,
-        "group-name2": 1
-      }
-    }
-  },
-  "init-group": "init-group-name"
-}'
-echo "[OK] 샘플 데이터 저장 완료"
+echo -e "\n=== 3. 신규 사용자($REDIS_USER) 인증 및 인덱스($REDIS_INDEX_NAME) 정보 조회 검증 ==="
+run_user_cli ping
+run_user_cli FT.INFO "$REDIS_INDEX_NAME" | head -n 4
 
-echo -e "\n=== 4. 신규 사용자($REDIS_USER)로 데이터 조회 검증 (JSON.GET) ==="
-run_user_cli JSON.GET canvas:1
-
-echo -e "\n\n=== 5. 신규 사용자($REDIS_USER)로 RediSearch 검색 쿼리 검증 (FT.SEARCH) ==="
-run_user_cli FT.SEARCH idx:canvas "@admin:[1000 1000]"
-
-echo -e "\n\n[SUCCESS] Redis Stack 사용자($REDIS_USER) 및 데이터 초기화가 완료되었습니다."
+echo -e "\n[SUCCESS] Redis Stack 사용자($REDIS_USER) 및 인덱스($REDIS_INDEX_NAME) 초기화가 완료되었습니다."

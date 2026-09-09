@@ -9,6 +9,8 @@ services:
     environment:
       - REDIS_USER=${REDIS_USER:-agora_user}
       - REDIS_USER_PASSWORD=${REDIS_USER_PASSWORD:-AgoraUserSecret@Passw0rd!2026}
+      - REDIS_INDEX_NAME=${REDIS_INDEX_NAME:-idx:canvas}
+      - REDIS_KEY_PREFIX=${REDIS_KEY_PREFIX:-canvas:}
       - TZ=${TIMEZONE:-Asia/Seoul}
     ports:
       # 외부 요청 허용: 모든 네트워크 인터페이스(0.0.0.0)에서 접속 허용
