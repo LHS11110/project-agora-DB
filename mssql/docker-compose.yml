@@ -9,6 +9,9 @@ services:
       - ACCEPT_EULA=Y
       - MSSQL_SA_PASSWORD=${MSSQL_SA_PASSWORD:-AgoraStrong@Passw0rd!2026}
       - MSSQL_PID=${MSSQL_PID:-Express} # 상용 서비스 시 라이선스 정책 준수 (Express: 무료 운영용, Developer: 개발 전용)
+      - MSSQL_DB=${MSSQL_DB:-agora_db}
+      - MSSQL_USER=${MSSQL_USER:-agora_user}
+      - MSSQL_PASSWORD=${MSSQL_PASSWORD:-AgoraUserSecret@Passw0rd!2026}
       - TZ=${TIMEZONE:-Asia/Seoul}
     ports:
       # 외부 직접 노출 방지: 127.0.0.1 바인딩

@@ -1,15 +1,44 @@
--- 데이터베이스 생성 (존재하지 않을 경우)
-IF NOT EXISTS (SELECT * FROM sys.databases WHERE name = 'agora_db')
+-- =======================================================
+-- Agora MS SQL Server Database & Schema Initialization
+-- sqlcmd 변수 사용: $(DB_NAME), $(DB_USER), $(DB_PASSWORD)
+-- =======================================================
+
+-- 1. SQL Server 일반 사용자 로그인 생성 및 비밀번호 동기화
+IF NOT EXISTS (SELECT 1 FROM sys.server_principals WHERE name = '$(DB_USER)')
 BEGIN
-    CREATE DATABASE agora_db;
+    CREATE LOGIN [$(DB_USER)] WITH PASSWORD = '$(DB_PASSWORD)', CHECK_POLICY = OFF;
+END
+ELSE
+BEGIN
+    ALTER LOGIN [$(DB_USER)] WITH PASSWORD = '$(DB_PASSWORD)';
 END
 GO
 
-USE agora_db;
+-- 2. 데이터베이스 생성 (존재하지 않을 경우)
+IF NOT EXISTS (SELECT 1 FROM sys.databases WHERE name = '$(DB_NAME)')
+BEGIN
+    CREATE DATABASE [$(DB_NAME)];
+END
 GO
 
--- 1. Redis Server 등록 테이블 생성 (복합 기본키: redis_ip, redis_port)
-IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'redis_server')
+-- 3. 데이터베이스 소유자를 지정된 일반 사용자로 설정
+-- (이미 해당 DB 내부에 동일 이름의 비-dbo 사용자가 매핑되어 있는 경우 충돌 방지를 위해 정리 후 소유권 이전)
+EXEC('USE [$(DB_NAME)]; IF EXISTS (SELECT 1 FROM sys.database_principals WHERE name = ''$(DB_USER)'') DROP USER [$(DB_USER)];');
+GO
+
+ALTER AUTHORIZATION ON DATABASE::[$(DB_NAME)] TO [$(DB_USER)];
+GO
+
+-- 4. 해당 사용자의 기본 데이터베이스 지정
+ALTER LOGIN [$(DB_USER)] WITH DEFAULT_DATABASE = [$(DB_NAME)];
+GO
+
+-- 5. 대상 데이터베이스 컨텍스트로 전환
+USE [$(DB_NAME)];
+GO
+
+-- 6. Redis Server 등록 테이블 생성 (복합 기본키: redis_ip, redis_port)
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'redis_server')
 BEGIN
     CREATE TABLE redis_server (
         redis_ip    VARCHAR(45)   NOT NULL,          -- Redis IP 주소 (IPv4/IPv6 지원)
@@ -20,8 +49,8 @@ BEGIN
 END
 GO
 
--- 2. 캔버스 캐시 확인 테이블 생성
-IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'canvas_cache')
+-- 7. 캔버스 캐시 확인 테이블 생성
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'canvas_cache')
 BEGIN
     CREATE TABLE canvas_cache (
         canvas_name NVARCHAR(255) NOT NULL,          -- 캔버스 이름 (기본키)
@@ -41,13 +70,13 @@ END
 GO
 
 -- 인덱스 생성 (조회 성능 향상)
-IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_canvas_cache_is_cached' AND object_id = OBJECT_ID('canvas_cache'))
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_canvas_cache_is_cached' AND object_id = OBJECT_ID('canvas_cache'))
 BEGIN
     CREATE NONCLUSTERED INDEX IX_canvas_cache_is_cached ON canvas_cache (is_cached);
 END
 GO
 
--- 3. 샘플 데이터 입력 (테스트용)
+-- 8. 샘플 데이터 입력 (테스트용)
 -- (1) Redis 서버 등록
 IF NOT EXISTS (SELECT 1 FROM redis_server WHERE redis_ip = '127.0.0.1' AND redis_port = '6379')
 BEGIN
@@ -66,7 +95,8 @@ BEGIN
 END
 GO
 
--- 데이터 확인
+-- 9. 데이터베이스 소유자 및 테이블 데이터 확인
+SELECT name AS database_name, SUSER_SNAME(owner_sid) AS owner_name FROM sys.databases WHERE name = '$(DB_NAME)';
 SELECT * FROM redis_server;
 SELECT * FROM canvas_cache;
 GO

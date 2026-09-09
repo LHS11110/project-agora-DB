@@ -25,11 +25,12 @@ project-agora-DB/
 │   ├── .env.example
 │   ├── .env
 │   └── init-redis.sh
-└── mssql/                          # MS SQL Server 서비스
-    ├── docker-compose.yml
-    ├── .env.example
-    ├── .env
-    └── init-mssql.sql
+├── mssql/                          # MS SQL Server 서비스
+│   ├── docker-compose.yml
+│   ├── .env.example
+│   ├── .env
+│   ├── init-mssql.sh
+│   └── init-mssql.sql
 ```
 
 ---
@@ -77,9 +78,16 @@ docker compose up -d
 
 각 서비스 컨테이너가 실행된 후 아래의 초기화 작업을 수행합니다.
 
-### (1) MS SQL 테이블 생성
+### (1) MS SQL 사용자 생성, 데이터베이스 소유권 부여 및 테이블 생성
 ```bash
-docker exec -i agora-mssql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'AgoraStrong@Passw0rd!2026' -C < mssql/init-mssql.sql
+./mssql/init-mssql.sh
+```
+*(또는 Docker 컨테이너 명령어로 직접 실행)*
+```bash
+docker exec -i agora-mssql /opt/mssql-tools18/bin/sqlcmd \
+  -S localhost -U sa -P 'AgoraStrong@Passw0rd!2026' -C \
+  -v DB_NAME='agora_db' -v DB_USER='agora_user' -v DB_PASSWORD='AgoraUserSecret@Passw0rd!2026' \
+  < mssql/init-mssql.sql
 ```
 
 ### (2) Elasticsearch 인덱스 및 매핑 생성

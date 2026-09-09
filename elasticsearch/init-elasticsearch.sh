@@ -91,9 +91,12 @@ curl -u "$ES_USER:$ES_PASS" -X PUT "$ES_HOST/$INDEX_NAME" \
   }
 }'
 
-echo -e "\n\n=== 2. 샘플 캔버스 도큐먼트 등록 (ID: 1) ==="
+CANVAS_NAME="Agora Architecture Canvas"
+ENCODED_DOC_ID="${CANVAS_NAME// /%20}"
 
-curl -u "$ES_USER:$ES_PASS" -X POST "$ES_HOST/$INDEX_NAME/_doc/1" \
+echo -e "\n\n=== 2. 샘플 캔버스 도큐먼트 등록 (ID: $CANVAS_NAME) ==="
+
+curl -u "$ES_USER:$ES_PASS" -X PUT "$ES_HOST/$INDEX_NAME/_doc/$ENCODED_DOC_ID" \
      -H 'Content-Type: application/json' \
      -d '{
   "canvas-name": "Agora Architecture Canvas",
@@ -121,6 +124,6 @@ curl -u "$ES_USER:$ES_PASS" -X POST "$ES_HOST/$INDEX_NAME/_doc/1" \
   "init-group": "init-group-name"
 }'
 
-echo -e "\n\n=== 3. 등록된 도큐먼트 조회 ==="
-curl -u "$ES_USER:$ES_PASS" -X GET "$ES_HOST/$INDEX_NAME/_doc/1?pretty"
+echo -e "\n\n=== 3. 등록된 도큐먼트 조회 (ID: $CANVAS_NAME) ==="
+curl -u "$ES_USER:$ES_PASS" -X GET "$ES_HOST/$INDEX_NAME/_doc/$ENCODED_DOC_ID?pretty"
 echo ""
