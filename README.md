@@ -82,16 +82,16 @@ docker compose up -d
 각 서비스 컨테이너가 실행된 후 아래의 초기화 작업을 수행합니다. 초기화 시 스키마와 인덱스, 전용 계정만 생성되며 **샘플 데이터는 삽입되지 않습니다.**
 
 ### (1) MS SQL 사용자 생성, 데이터베이스 소유권 부여 및 테이블 생성
-테이블 이름(`MSSQL_TABLE_REDIS_SERVER`, `MSSQL_TABLE_CANVAS_CACHE`)은 `.env`에서 변경할 수 있습니다.
+테이블 이름(`MSSQL_TABLE_USERS`, `MSSQL_TABLE_REDIS_SERVER`, `MSSQL_TABLE_CANVAS_CACHE`)은 `.env`에서 변경할 수 있습니다.
 ```bash
 ./mssql/init-mssql.sh
 ```
 *(또는 Docker 컨테이너 명령어로 직접 실행)*
 ```bash
 docker exec -i agora-mssql /opt/mssql-tools18/bin/sqlcmd \
-  -S localhost -U sa -P 'AgoraStrong@Passw0rd!2026' -C \
+  -S localhost -U sa -P 'AgoraStrong@Passw0rd!2026' -C -I \
   -v DB_NAME='agora_db' -v DB_USER='agora_user' -v DB_PASSWORD='AgoraUserSecret@Passw0rd!2026' \
-     TABLE_REDIS_SERVER='redis_server' TABLE_CANVAS_CACHE='canvas_cache' \
+     TABLE_USERS='users' TABLE_REDIS_SERVER='redis_server' TABLE_CANVAS_CACHE='canvas_cache' \
   < mssql/init-mssql.sql
 ```
 
@@ -115,7 +115,7 @@ docker exec -i agora-mssql /opt/mssql-tools18/bin/sqlcmd \
 초기화 완료 후, 생성된 일반 사용자 계정(`agora_user`)으로 각 저장소의 연결, 권한 격리 및 CRUD/검색 동작을 자동화된 테스트 코드로 검증할 수 있습니다. 테스트는 임시 데이터를 생성 후 완료 시 자동 삭제(클린업)하여 저장소를 깨끗한 상태로 유지합니다.
 
 ### 방법 A: Bash 테스트 스크립트 실행
-추가 패키지 설치 없이 Docker 및 기본 도구를 통해 21개 테스트 항목을 일괄 검증합니다.
+추가 패키지 설치 없이 Docker 및 기본 도구를 통해 25개 테스트 항목을 일괄 검증합니다.
 ```bash
 ./tests/test-storages.sh
 ```
@@ -126,9 +126,9 @@ docker exec -i agora-mssql /opt/mssql-tools18/bin/sqlcmd \
 python3 tests/test_storages.py
 ```
 
-### 📋 테스트 항목 요약 (총 21개 항목)
+### 📋 테스트 항목 요약 (총 25개 항목)
 | 저장소 | 사용자 | 검증 항목 |
 | :--- | :--- | :--- |
-| **MS SQL** | `agora_user` | ① 사용자 인증 및 DB 소유권(`dbo`) 확인<br>② 환경변수 지정 테이블 생성 여부 확인<br>③ 데이터 삽입 [Create]<br>④ 데이터 조회 [Read]<br>⑤ 데이터 수정 [Update]<br>⑥ 데이터 삭제 [Delete] (클린업 완료) |
+| **MS SQL** | `agora_user` | ① 사용자 인증 및 DB 소유권(`dbo`) 확인<br>② 환경변수 지정 테이블(`users`, `redis_server`, `canvas_cache`) 생성 여부 확인<br>③ 회원 테이블(`users`) 데이터 삽입 [Create]<br>④ 회원 테이블(`users`) 데이터 조회 [Read]<br>⑤ 회원 테이블(`users`) 데이터 수정 [Update]<br>⑥ 회원 테이블(`users`) 데이터 삭제 [Delete] (클린업)<br>⑦ 캐시 테이블(`canvas_cache`, `redis_server`) 데이터 삽입 [Create] (`canvas_id` PK)<br>⑧ 캐시 테이블 데이터 조회 [Read]<br>⑨ 캐시 테이블 데이터 수정 [Update]<br>⑩ 캐시 테이블 데이터 삭제 [Delete] (클린업 완료) |
 | **Elasticsearch** | `agora_user` | ① Security 인증 및 `agora_user_role` 역할 확인<br>② 인덱스 존재 및 접근 권한 확인<br>③ 도큐먼트 삽입 [Create]<br>④ 도큐먼트 단건 조회 [Read]<br>⑤ 검색 쿼리 [Search]<br>⑥ 도큐먼트 수정 [Update]<br>⑦ 도큐먼트 삭제 [Delete] (클린업 완료) |
 | **Redis Stack** | `agora_user` | ① Redis ACL 인증 (`PING` -> `PONG`)<br>② RediSearch 인덱스 정보 조회<br>③ RedisJSON 데이터 삽입 [Create]<br>④ RedisJSON 데이터 조회 [Read]<br>⑤ RediSearch 검색 쿼리 [Search]<br>⑥ RedisJSON 데이터 수정 [Update]<br>⑦ RedisJSON 데이터 삭제 [Delete] (클린업 완료)<br>⑧ 타 네임스페이스 키 접근 차단 [Scope Restriction] |

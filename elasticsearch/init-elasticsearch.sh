@@ -74,6 +74,14 @@ else
           }
         },
         {
+          "item_id": {
+            "path_match": "items.*.item-id",
+            "mapping": {
+              "type": "long"
+            }
+          }
+        },
+        {
           "item_type": {
             "path_match": "items.*.type",
             "mapping": {
