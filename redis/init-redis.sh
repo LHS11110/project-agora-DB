@@ -57,12 +57,18 @@ echo "[OK] 사용자($REDIS_USER) ACL 생성 완료 (허용 대상: ~${REDIS_KEY
 echo -e "\n=== 2. Redis Stack RediSearch 인덱스 ($REDIS_INDEX_NAME) 생성 ==="
 # 인덱스가 이미 존재하는지 확인
 if run_admin_cli FT._LIST | grep -q "^${REDIS_INDEX_NAME}$"; then
-  echo "인덱스(${REDIS_INDEX_NAME})가 이미 존재합니다. 생성을 건너뜁니다."
+  echo "인덱스(${REDIS_INDEX_NAME})가 이미 존재합니다. 스키마 속성을 동기화합니다..."
+  # canvas-password 속성이 없는 경우 추가
+  if ! run_admin_cli FT.INFO "$REDIS_INDEX_NAME" | grep -q "canvas_password"; then
+    run_admin_cli FT.ALTER "$REDIS_INDEX_NAME" SCHEMA ADD '$["canvas-password"]' AS canvas_password TAG
+    echo "[OK] RediSearch 인덱스($REDIS_INDEX_NAME)에 canvas_password 속성 추가 완료"
+  fi
 else
   run_admin_cli FT.CREATE "$REDIS_INDEX_NAME" ON JSON PREFIX 1 "$REDIS_KEY_PREFIX" SCHEMA \
       '$["canvas-name"]' AS canvas_name TEXT SORTABLE \
       '$["canvas-id"]' AS canvas_id NUMERIC SORTABLE \
       '$.admin' AS admin NUMERIC \
+      '$["canvas-password"]' AS canvas_password TAG \
       '$.peoples[*]' AS peoples NUMERIC \
       '$["init-group"]' AS init_group TAG
   echo "[OK] RediSearch 인덱스($REDIS_INDEX_NAME) 생성 완료 (초기 데이터 미삽입)"

@@ -260,9 +260,9 @@ fi
 ES_DOC_ID="test-crud-doc"
 ES_INS_RESP=$(curl -s -u "$ES_USER:$ES_PASS" -X PUT "$ES_URL/$ES_INDEX/_doc/$ES_DOC_ID?refresh=true" \
   -H 'Content-Type: application/json' \
-  -d '{"canvas-name": "Agora Test Canvas", "canvas-id": 8888, "admin": 999}')
+  -d '{"canvas-name": "Agora Test Canvas", "canvas-id": 8888, "admin": 999, "canvas-password": "hash_password_sample"}')
 if echo "$ES_INS_RESP" | grep -qE '"result":"(created|updated)"'; then
-  log_test_pass "인덱스($ES_INDEX) 도큐먼트 삽입 [Create] 성공"
+  log_test_pass "인덱스($ES_INDEX) 도큐먼트 삽입 [Create] 성공 (canvas-password 포함)"
 else
   log_test_fail "인덱스($ES_INDEX) 도큐먼트 삽입 실패" "$ES_INS_RESP"
 fi
@@ -286,10 +286,10 @@ else
 fi
 rm -f /tmp/es_search_resp.json
 
-# (2-6) 도큐먼트 수정 [Update]
+# (2-6) 도큐먼트 수정 [Update] (canvas-password를 null로 변경하여 none 허용 검증)
 ES_UPD_RESP=$(curl -s -u "$ES_USER:$ES_PASS" -X POST "$ES_URL/$ES_INDEX/_update/$ES_DOC_ID" \
   -H 'Content-Type: application/json' \
-  -d '{"doc": {"canvas-name": "Agora Test Canvas Updated"}}')
+  -d '{"doc": {"canvas-name": "Agora Test Canvas Updated", "canvas-password": null}}')
 if echo "$ES_UPD_RESP" | grep -q '"result":"updated"'; then
   log_test_pass "인덱스($ES_INDEX) 도큐먼트 수정 [Update] 성공"
 else
@@ -367,10 +367,10 @@ fi
 
 TEST_REDIS_KEY="${REDIS_KEY_PREFIX}test-crud"
 
-# (3-3) 데이터 삽입 [Create]
-REDIS_INSERT_OUT=$(run_redis_user_cmd JSON.SET "$TEST_REDIS_KEY" $ '{"canvas-name":"Test CRUD Canvas","canvas-id":100,"admin":1000}')
+# (3-3) 데이터 삽입 [Create] (canvas-password 포함)
+REDIS_INSERT_OUT=$(run_redis_user_cmd JSON.SET "$TEST_REDIS_KEY" $ '{"canvas-name":"Test CRUD Canvas","canvas-id":100,"admin":1000,"canvas-password":"hash_secret_example"}')
 if echo "$REDIS_INSERT_OUT" | grep -q "OK"; then
-  log_test_pass "RedisJSON 데이터 삽입 [Create] ($TEST_REDIS_KEY) 성공"
+  log_test_pass "RedisJSON 데이터 삽입 [Create] ($TEST_REDIS_KEY, canvas-password 포함) 성공"
 else
   log_test_fail "RedisJSON 데이터 삽입 실패" "$REDIS_INSERT_OUT"
 fi
@@ -391,10 +391,11 @@ else
   log_test_fail "RediSearch 검색 쿼리 실패" "$REDIS_SEARCH_OUT"
 fi
 
-# (3-6) 데이터 수정 [Update]
+# (3-6) 데이터 수정 [Update] (admin 수정 및 canvas-password none 설정 허용 확인)
 REDIS_UPDATE_OUT=$(run_redis_user_cmd JSON.SET "$TEST_REDIS_KEY" $.admin 2000)
+run_redis_user_cmd JSON.SET "$TEST_REDIS_KEY" '$["canvas-password"]' 'null'
 if echo "$REDIS_UPDATE_OUT" | grep -q "OK"; then
-  log_test_pass "RedisJSON 데이터 수정 [Update] ($TEST_REDIS_KEY $.admin 2000) 성공"
+  log_test_pass "RedisJSON 데이터 수정 [Update] ($TEST_REDIS_KEY $.admin 2000, canvas-password: null) 성공"
 else
   log_test_fail "RedisJSON 데이터 수정 실패" "$REDIS_UPDATE_OUT"
 fi

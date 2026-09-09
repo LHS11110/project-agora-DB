@@ -210,16 +210,16 @@ def test_elasticsearch():
 
     doc_id = "test-py-doc"
 
-    # (2-3) 도큐먼트 삽입 [Create]
+    # (2-3) 도큐먼트 삽입 [Create] (canvas-password 포함)
     try:
-        payload = json.dumps({"canvas-name": "Agora Test Canvas", "canvas-id": 7777, "admin": 100}).encode()
+        payload = json.dumps({"canvas-name": "Agora Test Canvas", "canvas-id": 7777, "admin": 100, "canvas-password": "hash_secret_example"}).encode()
         req = urllib.request.Request(f"{ES_HOST}/{ES_INDEX}/_doc/{doc_id}?refresh=true", data=payload, method="PUT")
         req.add_header("Authorization", auth_header)
         req.add_header("Content-Type", "application/json")
         with urllib.request.urlopen(req) as resp:
             data = json.loads(resp.read().decode())
             res = data.get("result", "")
-            record_test(f"인덱스({ES_INDEX}) 도큐먼트 삽입 [Create] 성공 (result: {res})", res in ("created", "updated"))
+            record_test(f"인덱스({ES_INDEX}) 도큐먼트 삽입 [Create] 성공 (result: {res}, canvas-password 포함)", res in ("created", "updated"))
     except Exception as e:
         record_test(f"인덱스({ES_INDEX}) 도큐먼트 삽입 실패", False, str(e))
 
@@ -247,9 +247,9 @@ def test_elasticsearch():
     except Exception as e:
         record_test(f"인덱스({ES_INDEX}) match 검색 조회 실패", False, str(e))
 
-    # (2-6) 도큐먼트 수정 [Update]
+    # (2-6) 도큐먼트 수정 [Update] (canvas-password를 None(null)으로 갱신하여 none 허용 검증)
     try:
-        update_payload = json.dumps({"doc": {"canvas-name": "Agora Test Canvas Updated"}}).encode()
+        update_payload = json.dumps({"doc": {"canvas-name": "Agora Test Canvas Updated", "canvas-password": None}}).encode()
         req = urllib.request.Request(f"{ES_HOST}/{ES_INDEX}/_update/{doc_id}", data=update_payload, method="POST")
         req.add_header("Authorization", auth_header)
         req.add_header("Content-Type", "application/json")
@@ -301,9 +301,9 @@ def test_redis():
         info_res = run_redis_cmd("FT.INFO", REDIS_INDEX_NAME)
         record_test(f"RediSearch 인덱스({REDIS_INDEX_NAME}) 정보 조회", REDIS_INDEX_NAME in info_res, info_res)
 
-        # (3-3) RedisJSON 데이터 삽입 [Create]
-        insert_res = run_redis_cmd("JSON.SET", test_key, "$", '{"canvas-name":"PyTest","canvas-id":555,"admin":1000}')
-        record_test(f"RedisJSON 데이터 삽입 [Create] ({test_key})", "OK" in insert_res, insert_res)
+        # (3-3) RedisJSON 데이터 삽입 [Create] (canvas-password 포함)
+        insert_res = run_redis_cmd("JSON.SET", test_key, "$", '{"canvas-name":"PyTest","canvas-id":555,"admin":1000,"canvas-password":"hash_secret_example"}')
+        record_test(f"RedisJSON 데이터 삽입 [Create] ({test_key}, canvas-password 포함)", "OK" in insert_res, insert_res)
 
         # (3-4) RedisJSON 데이터 조회 [Read]
         json_res = run_redis_cmd("JSON.GET", test_key)
@@ -313,9 +313,10 @@ def test_redis():
         search_res = run_redis_cmd("FT.SEARCH", REDIS_INDEX_NAME, "@admin:[1000 1000]")
         record_test(f"RediSearch 검색 쿼리 [Search] (FT.SEARCH {REDIS_INDEX_NAME})", test_key in search_res, search_res)
 
-        # (3-6) RedisJSON 데이터 수정 [Update]
+        # (3-6) RedisJSON 데이터 수정 [Update] (admin 변경 및 canvas-password null 갱신 허용 확인)
         update_res = run_redis_cmd("JSON.SET", test_key, "$.admin", "2000")
-        record_test(f"RedisJSON 데이터 수정 [Update] ({test_key} $.admin 2000)", "OK" in update_res, update_res)
+        run_redis_cmd("JSON.SET", test_key, '$["canvas-password"]', "null")
+        record_test(f"RedisJSON 데이터 수정 [Update] ({test_key} $.admin 2000, canvas-password: null)", "OK" in update_res, update_res)
 
         # (3-7) RedisJSON 데이터 삭제 [Delete]
         del_res = run_redis_cmd("DEL", test_key)

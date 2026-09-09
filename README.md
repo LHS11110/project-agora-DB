@@ -199,6 +199,7 @@ Redis는 `canvas:{canvas_id}` 키에 JSON 형식으로 저장하며, Elasticsear
   "canvas-name": "Agora Shared Canvas",
   "canvas-id": 1001,
   "admin": 1,
+  "canvas-password": null,
   "peoples": [1, 2, 3, 4],
   "inner-group": {
     "group-name1": [1, 2],

@@ -61,7 +61,17 @@ echo -e "\n=== 3. Elasticsearch 인덱스 ($INDEX_NAME) 매핑 생성 ==="
 # 인덱스가 이미 존재하는지 확인 후 없을 때만 생성
 INDEX_EXISTS=$(curl -s -o /dev/null -w "%{http_code}" -u "$ES_SUPER_USER:$ES_SUPER_PASS" "$ES_HOST/$INDEX_NAME")
 if [ "$INDEX_EXISTS" = "200" ]; then
-  echo "인덱스($INDEX_NAME)가 이미 존재합니다. 매핑 생성을 건너뜁니다."
+  echo "인덱스($INDEX_NAME)가 이미 존재합니다. 최신 필드 매핑(canvas-password)을 동기화합니다..."
+  curl -s -f -u "$ES_SUPER_USER:$ES_SUPER_PASS" -X PUT "$ES_HOST/$INDEX_NAME/_mapping" \
+       -H 'Content-Type: application/json' \
+       -d '{
+    "properties": {
+      "canvas-password": {
+        "type": "keyword"
+      }
+    }
+  }'
+  echo -e "\n[OK] 인덱스($INDEX_NAME) 매핑 동기화 완료"
 else
   curl -s -f -u "$ES_SUPER_USER:$ES_SUPER_PASS" -X PUT "$ES_HOST/$INDEX_NAME" \
        -H 'Content-Type: application/json' \
@@ -128,6 +138,9 @@ else
         },
         "admin": {
           "type": "long"
+        },
+        "canvas-password": {
+          "type": "keyword"
         },
         "peoples": {
           "type": "long"
