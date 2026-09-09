@@ -63,6 +63,7 @@ if [ -f "$ROOT_DIR/mssql/.env" ]; then
   MSSQL_TABLE_USERS=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep 'MSSQL_TABLE_USERS=' | cut -d '=' -f2- | tr -d '\r' || echo "users")
   MSSQL_TABLE_REDIS_SERVER=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep 'MSSQL_TABLE_REDIS_SERVER=' | cut -d '=' -f2- | tr -d '\r' || echo "redis_server")
   MSSQL_TABLE_CANVAS_CACHE=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep 'MSSQL_TABLE_CANVAS_CACHE=' | cut -d '=' -f2- | tr -d '\r' || echo "canvas_cache")
+  MSSQL_TABLE_PYTHON_SERVER=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep 'MSSQL_TABLE_PYTHON_SERVER=' | cut -d '=' -f2- | tr -d '\r' || echo "python_server")
 else
   MSSQL_HOST="127.0.0.1"
   MSSQL_PORT="1433"
@@ -72,10 +73,11 @@ else
   MSSQL_TABLE_USERS="users"
   MSSQL_TABLE_REDIS_SERVER="redis_server"
   MSSQL_TABLE_CANVAS_CACHE="canvas_cache"
+  MSSQL_TABLE_PYTHON_SERVER="python_server"
 fi
 
 echo "  - 접속 정보: $MSSQL_USER@$MSSQL_HOST:$MSSQL_PORT/$MSSQL_DB"
-echo "  - 검증 테이블: $MSSQL_TABLE_USERS, $MSSQL_TABLE_REDIS_SERVER, $MSSQL_TABLE_CANVAS_CACHE"
+echo "  - 검증 테이블: $MSSQL_TABLE_USERS, $MSSQL_TABLE_REDIS_SERVER, $MSSQL_TABLE_CANVAS_CACHE, $MSSQL_TABLE_PYTHON_SERVER"
 
 run_mssql_query() {
   local query="$1"
@@ -95,12 +97,12 @@ else
   log_test_fail "사용자 인증 또는 DB 소유권 확인 실패" "$AUTH_OUT"
 fi
 
-# (1-2) 설정된 테이블 존재 여부 확인 (users, redis_server, canvas_cache 총 3개)
-TBL_CHECK_OUT=$(run_mssql_query "SET NOCOUNT ON; SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME IN ('$MSSQL_TABLE_USERS', '$MSSQL_TABLE_REDIS_SERVER', '$MSSQL_TABLE_CANVAS_CACHE');" | tr -dc '0-9')
-if [ "$TBL_CHECK_OUT" = "3" ]; then
-  log_test_pass "환경변수 지정 테이블($MSSQL_TABLE_USERS, $MSSQL_TABLE_REDIS_SERVER, $MSSQL_TABLE_CANVAS_CACHE) 생성 확인"
+# (1-2) 설정된 테이블 존재 여부 확인 (users, redis_server, canvas_cache, python_server 총 4개)
+TBL_CHECK_OUT=$(run_mssql_query "SET NOCOUNT ON; SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME IN ('$MSSQL_TABLE_USERS', '$MSSQL_TABLE_REDIS_SERVER', '$MSSQL_TABLE_CANVAS_CACHE', '$MSSQL_TABLE_PYTHON_SERVER');" | tr -dc '0-9')
+if [ "$TBL_CHECK_OUT" = "4" ]; then
+  log_test_pass "환경변수 지정 테이블($MSSQL_TABLE_USERS, $MSSQL_TABLE_REDIS_SERVER, $MSSQL_TABLE_CANVAS_CACHE, $MSSQL_TABLE_PYTHON_SERVER) 생성 확인"
 else
-  log_test_fail "테이블 생성 확인 실패 (발견된 테이블 수: $TBL_CHECK_OUT / 3)" "$TBL_CHECK_OUT"
+  log_test_fail "테이블 생성 확인 실패 (발견된 테이블 수: $TBL_CHECK_OUT / 4)" "$TBL_CHECK_OUT"
 fi
 
 # (1-3) 회원 테이블($MSSQL_TABLE_USERS) CRUD 테스트
@@ -165,6 +167,40 @@ if [ "$MSSQL_DEL_OUT" = "0" ]; then
   log_test_pass "캐시 테이블($MSSQL_TABLE_CANVAS_CACHE, $MSSQL_TABLE_REDIS_SERVER) 데이터 삭제 [Delete] 성공 (클린업 완료)"
 else
   log_test_fail "캐시 테이블 데이터 삭제 실패" "$MSSQL_DEL_OUT"
+fi
+
+# (1-8) Python 서버 테이블($MSSQL_TABLE_PYTHON_SERVER) 데이터 삽입 [Create]
+TEST_PY_SERVER_IP="127.0.0.1"
+TEST_PY_SERVER_PORT="8000"
+MSSQL_PY_INS=$(run_mssql_query "SET NOCOUNT ON; INSERT INTO [$MSSQL_TABLE_PYTHON_SERVER] (server_ip, server_port) VALUES ('$TEST_PY_SERVER_IP', '$TEST_PY_SERVER_PORT'); SELECT COUNT(*) FROM [$MSSQL_TABLE_PYTHON_SERVER] WHERE server_ip = '$TEST_PY_SERVER_IP' AND server_port = '$TEST_PY_SERVER_PORT';" | tr -dc '0-9')
+if [ "$MSSQL_PY_INS" = "1" ]; then
+  log_test_pass "Python 서버 테이블($MSSQL_TABLE_PYTHON_SERVER) 데이터 삽입 [Create] 성공 ($TEST_PY_SERVER_IP:$TEST_PY_SERVER_PORT)"
+else
+  log_test_fail "Python 서버 테이블 데이터 삽입 실패" "$MSSQL_PY_INS"
+fi
+
+# (1-9) Python 서버 테이블($MSSQL_TABLE_PYTHON_SERVER) 데이터 조회 [Read]
+MSSQL_PY_READ=$(run_mssql_query "SET NOCOUNT ON; SELECT server_port FROM [$MSSQL_TABLE_PYTHON_SERVER] WHERE server_ip = '$TEST_PY_SERVER_IP' AND server_port = '$TEST_PY_SERVER_PORT';" | tr -dc '0-9')
+if [ "$MSSQL_PY_READ" = "8000" ]; then
+  log_test_pass "Python 서버 테이블($MSSQL_TABLE_PYTHON_SERVER) 데이터 조회 [Read] 성공 (port: 8000)"
+else
+  log_test_fail "Python 서버 테이블 데이터 조회 실패" "$MSSQL_PY_READ"
+fi
+
+# (1-10) Python 서버 테이블($MSSQL_TABLE_PYTHON_SERVER) 데이터 수정 [Update]
+MSSQL_PY_UPD=$(run_mssql_query "SET NOCOUNT ON; UPDATE [$MSSQL_TABLE_PYTHON_SERVER] SET server_port = '8080' WHERE server_ip = '$TEST_PY_SERVER_IP' AND server_port = '$TEST_PY_SERVER_PORT'; SELECT server_port FROM [$MSSQL_TABLE_PYTHON_SERVER] WHERE server_ip = '$TEST_PY_SERVER_IP' AND server_port = '8080';" | tr -dc '0-9')
+if [ "$MSSQL_PY_UPD" = "8080" ]; then
+  log_test_pass "Python 서버 테이블($MSSQL_TABLE_PYTHON_SERVER) 데이터 수정 [Update] 성공 (8000 -> 8080)"
+else
+  log_test_fail "Python 서버 테이블 데이터 수정 실패" "$MSSQL_PY_UPD"
+fi
+
+# (1-11) Python 서버 테이블($MSSQL_TABLE_PYTHON_SERVER) 데이터 삭제 [Delete]
+MSSQL_PY_DEL=$(run_mssql_query "SET NOCOUNT ON; DELETE FROM [$MSSQL_TABLE_PYTHON_SERVER] WHERE server_ip = '$TEST_PY_SERVER_IP' AND server_port = '8080'; SELECT COUNT(*) FROM [$MSSQL_TABLE_PYTHON_SERVER] WHERE server_ip = '$TEST_PY_SERVER_IP' AND server_port = '8080';" | tr -dc '0-9')
+if [ "$MSSQL_PY_DEL" = "0" ]; then
+  log_test_pass "Python 서버 테이블($MSSQL_TABLE_PYTHON_SERVER) 데이터 삭제 [Delete] 성공 (클린업 완료)"
+else
+  log_test_fail "Python 서버 테이블 데이터 삭제 실패" "$MSSQL_PY_DEL"
 fi
 
 echo ""

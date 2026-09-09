@@ -2,7 +2,7 @@
 -- Agora MS SQL Server Database & Schema Initialization
 -- sqlcmd 변수 사용:
 --   $(DB_NAME), $(DB_USER), $(DB_PASSWORD)
---   $(TABLE_USERS), $(TABLE_REDIS_SERVER), $(TABLE_CANVAS_CACHE)
+--   $(TABLE_USERS), $(TABLE_REDIS_SERVER), $(TABLE_CANVAS_CACHE), $(TABLE_PYTHON_SERVER)
 -- ==============================================================================
 
 SET ANSI_NULLS ON;
@@ -51,12 +51,25 @@ IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = '$(TABLE_REDIS_SERVER)')
 BEGIN
     CREATE TABLE [$(TABLE_REDIS_SERVER)] (
         redis_id    INT IDENTITY(1,1) NOT NULL,
-        redis_ip    VARCHAR(45)       NOT NULL,          -- Redis IP 주소 (IPv4/IPv6)
-        redis_port  VARCHAR(10)       NOT NULL,          -- Redis 포트 번호
+        redis_ip    VARCHAR(45)       NOT NULL,          -- Redis IP 주소 (IPv4/IPv6, 공백 불가)
+        redis_port  VARCHAR(10)       NOT NULL,          -- Redis 포트 번호 (공백 불가)
         created_at  DATETIME2         NOT NULL DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_$(TABLE_REDIS_SERVER)] PRIMARY KEY CLUSTERED (redis_id),
-        CONSTRAINT [UQ_$(TABLE_REDIS_SERVER)_ip_port] UNIQUE NONCLUSTERED (redis_ip, redis_port)
+        CONSTRAINT [UQ_$(TABLE_REDIS_SERVER)_ip_port] UNIQUE NONCLUSTERED (redis_ip, redis_port),
+        CONSTRAINT [CK_$(TABLE_REDIS_SERVER)_ip] CHECK (LEN(LTRIM(RTRIM(redis_ip))) > 0),
+        CONSTRAINT [CK_$(TABLE_REDIS_SERVER)_port] CHECK (LEN(LTRIM(RTRIM(redis_port))) > 0)
     );
+END
+ELSE
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_$(TABLE_REDIS_SERVER)_ip')
+    BEGIN
+        ALTER TABLE [$(TABLE_REDIS_SERVER)] ADD CONSTRAINT [CK_$(TABLE_REDIS_SERVER)_ip] CHECK (LEN(LTRIM(RTRIM(redis_ip))) > 0);
+    END;
+    IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_$(TABLE_REDIS_SERVER)_port')
+    BEGIN
+        ALTER TABLE [$(TABLE_REDIS_SERVER)] ADD CONSTRAINT [CK_$(TABLE_REDIS_SERVER)_port] CHECK (LEN(LTRIM(RTRIM(redis_port))) > 0);
+    END;
 END
 GO
 
@@ -128,7 +141,23 @@ BEGIN
 END
 GO
 
--- 9. 데이터베이스 소유자 및 생성된 테이블 목록 확인
+-- 9. Python Server 등록 테이블 (PK: server_id, UQ: server_ip, server_port)
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = '$(TABLE_PYTHON_SERVER)')
+BEGIN
+    CREATE TABLE [$(TABLE_PYTHON_SERVER)] (
+        server_id    INT IDENTITY(1,1) NOT NULL,
+        server_ip    VARCHAR(45)       NOT NULL,          -- Python 서버 IP 주소 (IPv4/IPv6, 공백 불가)
+        server_port  VARCHAR(10)       NOT NULL,          -- Python 서버 포트 번호 (공백 불가)
+        created_at   DATETIME2         NOT NULL DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT [PK_$(TABLE_PYTHON_SERVER)] PRIMARY KEY CLUSTERED (server_id),
+        CONSTRAINT [UQ_$(TABLE_PYTHON_SERVER)_ip_port] UNIQUE NONCLUSTERED (server_ip, server_port),
+        CONSTRAINT [CK_$(TABLE_PYTHON_SERVER)_ip] CHECK (LEN(LTRIM(RTRIM(server_ip))) > 0),
+        CONSTRAINT [CK_$(TABLE_PYTHON_SERVER)_port] CHECK (LEN(LTRIM(RTRIM(server_port))) > 0)
+    );
+END
+GO
+
+-- 10. 데이터베이스 소유자 및 생성된 테이블 목록 확인
 SELECT name AS database_name, SUSER_SNAME(owner_sid) AS owner_name FROM sys.databases WHERE name = '$(DB_NAME)';
 SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE';
 GO

@@ -29,6 +29,7 @@ MSSQL_PASS="${MSSQL_PASSWORD:-AgoraUserSecret@Passw0rd!2026}"
 MSSQL_TABLE_USERS="${MSSQL_TABLE_USERS:-users}"
 MSSQL_TABLE_REDIS_SERVER="${MSSQL_TABLE_REDIS_SERVER:-redis_server}"
 MSSQL_TABLE_CANVAS_CACHE="${MSSQL_TABLE_CANVAS_CACHE:-canvas_cache}"
+MSSQL_TABLE_PYTHON_SERVER="${MSSQL_TABLE_PYTHON_SERVER:-python_server}"
 
 SQL_FILE="$SCRIPT_DIR/init-mssql.sql"
 
@@ -41,7 +42,7 @@ echo "=== 1. MS SQL 초기화 시작 ==="
 echo "대상 호스트:   $MSSQL_HOST:$MSSQL_PORT"
 echo "데이터베이스:  $MSSQL_DB"
 echo "소유자 계정:   $MSSQL_USER"
-echo "테이블 구성:   $MSSQL_TABLE_USERS, $MSSQL_TABLE_REDIS_SERVER, $MSSQL_TABLE_CANVAS_CACHE"
+echo "테이블 구성:   $MSSQL_TABLE_USERS, $MSSQL_TABLE_REDIS_SERVER, $MSSQL_TABLE_CANVAS_CACHE, $MSSQL_TABLE_PYTHON_SERVER"
 
 # 로컬 sqlcmd가 있으면 로컬 사용, 없으면 docker exec fallback 사용
 if command -v sqlcmd &> /dev/null; then
@@ -49,6 +50,7 @@ if command -v sqlcmd &> /dev/null; then
   sqlcmd -S "$MSSQL_HOST,$MSSQL_PORT" -U sa -P "$MSSQL_SA_PASS" -C -I \
     -v DB_NAME="$MSSQL_DB" DB_USER="$MSSQL_USER" DB_PASSWORD="$MSSQL_PASS" \
        TABLE_USERS="$MSSQL_TABLE_USERS" TABLE_REDIS_SERVER="$MSSQL_TABLE_REDIS_SERVER" TABLE_CANVAS_CACHE="$MSSQL_TABLE_CANVAS_CACHE" \
+       TABLE_PYTHON_SERVER="$MSSQL_TABLE_PYTHON_SERVER" \
     -i "$SQL_FILE"
 else
   echo "Docker 컨테이너(agora-mssql) 내부 sqlcmd를 사용하여 초기화합니다..."
@@ -56,6 +58,7 @@ else
     -S localhost -U sa -P "$MSSQL_SA_PASS" -C -I \
     -v DB_NAME="$MSSQL_DB" DB_USER="$MSSQL_USER" DB_PASSWORD="$MSSQL_PASS" \
        TABLE_USERS="$MSSQL_TABLE_USERS" TABLE_REDIS_SERVER="$MSSQL_TABLE_REDIS_SERVER" TABLE_CANVAS_CACHE="$MSSQL_TABLE_CANVAS_CACHE" \
+       TABLE_PYTHON_SERVER="$MSSQL_TABLE_PYTHON_SERVER" \
     < "$SQL_FILE"
 fi
 

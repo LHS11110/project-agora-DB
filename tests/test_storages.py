@@ -51,6 +51,7 @@ MSSQL_PASS = mssql_env.get("MSSQL_PASSWORD", "AgoraUserSecret@Passw0rd!2026")
 MSSQL_TABLE_USERS = mssql_env.get("MSSQL_TABLE_USERS", "users")
 MSSQL_TABLE_REDIS_SERVER = mssql_env.get("MSSQL_TABLE_REDIS_SERVER", "redis_server")
 MSSQL_TABLE_CANVAS_CACHE = mssql_env.get("MSSQL_TABLE_CANVAS_CACHE", "canvas_cache")
+MSSQL_TABLE_PYTHON_SERVER = mssql_env.get("MSSQL_TABLE_PYTHON_SERVER", "python_server")
 
 # Elasticsearch 설정
 es_raw_ip = es_env.get("ES_EXTERNAL_IP", "127.0.0.1")
@@ -85,7 +86,7 @@ def record_test(name: str, passed: bool, detail: str = ""):
 # ==============================================================================
 def test_mssql():
     print(f"\n{YELLOW}[1/3] MS SQL Server CRUD 테스트 ({MSSQL_USER}@{MSSQL_HOST}:{MSSQL_PORT}/{MSSQL_DB}){RESET}")
-    print(f"  - 검증 테이블: {MSSQL_TABLE_USERS}, {MSSQL_TABLE_REDIS_SERVER}, {MSSQL_TABLE_CANVAS_CACHE}")
+    print(f"  - 검증 테이블: {MSSQL_TABLE_USERS}, {MSSQL_TABLE_REDIS_SERVER}, {MSSQL_TABLE_CANVAS_CACHE}, {MSSQL_TABLE_PYTHON_SERVER}")
     
     def run_query(sql: str) -> str:
         cmd = [
@@ -107,9 +108,9 @@ def test_mssql():
         is_dbo = f"{MSSQL_DB}:dbo:{MSSQL_USER}" in auth_info
         record_test(f"사용자 인증 및 DB 소유권 확인 ({MSSQL_USER} -> dbo)", is_dbo, auth_info)
 
-        # (1-2) 환경변수 테이블 존재 여부 확인 (3개 테이블)
-        tbl_cnt = run_query(f"SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME IN ('{MSSQL_TABLE_USERS}', '{MSSQL_TABLE_REDIS_SERVER}', '{MSSQL_TABLE_CANVAS_CACHE}');")
-        record_test(f"환경변수 지정 테이블({MSSQL_TABLE_USERS}, {MSSQL_TABLE_REDIS_SERVER}, {MSSQL_TABLE_CANVAS_CACHE}) 생성 확인", tbl_cnt == "3", tbl_cnt)
+        # (1-2) 환경변수 테이블 존재 여부 확인 (4개 테이블)
+        tbl_cnt = run_query(f"SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME IN ('{MSSQL_TABLE_USERS}', '{MSSQL_TABLE_REDIS_SERVER}', '{MSSQL_TABLE_CANVAS_CACHE}', '{MSSQL_TABLE_PYTHON_SERVER}');")
+        record_test(f"환경변수 지정 테이블({MSSQL_TABLE_USERS}, {MSSQL_TABLE_REDIS_SERVER}, {MSSQL_TABLE_CANVAS_CACHE}, {MSSQL_TABLE_PYTHON_SERVER}) 생성 확인", tbl_cnt == "4", tbl_cnt)
 
         # (1-3) 회원 테이블(users) CRUD
         test_email = "test_py_user@agora.com"
@@ -150,6 +151,27 @@ def test_mssql():
         run_query(f"DELETE FROM [{MSSQL_TABLE_REDIS_SERVER}] WHERE redis_ip = '{test_cache_redis_ip}' AND redis_port = '{test_cache_redis_port}';")
         del_cnt = run_query(f"SELECT COUNT(*) FROM [{MSSQL_TABLE_CANVAS_CACHE}] WHERE canvas_id = 8888;")
         record_test(f"캐시 테이블({MSSQL_TABLE_CANVAS_CACHE}, {MSSQL_TABLE_REDIS_SERVER}) 데이터 삭제 [Delete] 성공 (클린업 완료)", del_cnt == "0", del_cnt)
+
+        # (1-8) Python 서버 테이블 CRUD
+        test_py_ip = "127.0.0.1"
+        test_py_port = "8000"
+        run_query(f"INSERT INTO [{MSSQL_TABLE_PYTHON_SERVER}] (server_ip, server_port) VALUES ('{test_py_ip}', '{test_py_port}');")
+        py_ins = run_query(f"SELECT COUNT(*) FROM [{MSSQL_TABLE_PYTHON_SERVER}] WHERE server_ip = '{test_py_ip}' AND server_port = '{test_py_port}';")
+        record_test(f"Python 서버 테이블({MSSQL_TABLE_PYTHON_SERVER}) 데이터 삽입 [Create] 성공 ({test_py_ip}:{test_py_port})", py_ins == "1", py_ins)
+
+        # (1-9) Python 서버 테이블 조회 [Read]
+        py_read = run_query(f"SELECT server_port FROM [{MSSQL_TABLE_PYTHON_SERVER}] WHERE server_ip = '{test_py_ip}';")
+        record_test(f"Python 서버 테이블({MSSQL_TABLE_PYTHON_SERVER}) 데이터 조회 [Read] 성공 (port: 8000)", py_read == "8000", py_read)
+
+        # (1-10) Python 서버 테이블 수정 [Update]
+        run_query(f"UPDATE [{MSSQL_TABLE_PYTHON_SERVER}] SET server_port = '8080' WHERE server_ip = '{test_py_ip}';")
+        py_upd = run_query(f"SELECT server_port FROM [{MSSQL_TABLE_PYTHON_SERVER}] WHERE server_ip = '{test_py_ip}';")
+        record_test(f"Python 서버 테이블({MSSQL_TABLE_PYTHON_SERVER}) 데이터 수정 [Update] 성공 (8000 -> 8080)", py_upd == "8080", py_upd)
+
+        # (1-11) Python 서버 테이블 삭제 [Delete] (클린업)
+        run_query(f"DELETE FROM [{MSSQL_TABLE_PYTHON_SERVER}] WHERE server_ip = '{test_py_ip}';")
+        py_del = run_query(f"SELECT COUNT(*) FROM [{MSSQL_TABLE_PYTHON_SERVER}] WHERE server_ip = '{test_py_ip}';")
+        record_test(f"Python 서버 테이블({MSSQL_TABLE_PYTHON_SERVER}) 데이터 삭제 [Delete] 성공 (클린업 완료)", py_del == "0", py_del)
     except Exception as e:
         record_test("MS SQL 쿼리 실행 실패", False, str(e))
 

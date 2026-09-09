@@ -15,6 +15,7 @@ services:
       - MSSQL_TABLE_USERS=${MSSQL_TABLE_USERS:-users}
       - MSSQL_TABLE_REDIS_SERVER=${MSSQL_TABLE_REDIS_SERVER:-redis_server}
       - MSSQL_TABLE_CANVAS_CACHE=${MSSQL_TABLE_CANVAS_CACHE:-canvas_cache}
+      - MSSQL_TABLE_PYTHON_SERVER=${MSSQL_TABLE_PYTHON_SERVER:-python_server}
       - TZ=${TIMEZONE:-Asia/Seoul}
     ports:
       # 외부 접속 바인딩 (.env의 MSSQL_EXTERNAL_IP, MSSQL_EXTERNAL_PORT 설정 반영)
