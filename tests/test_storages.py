@@ -14,6 +14,17 @@ import urllib.error
 import subprocess
 from pathlib import Path
 
+# 네이티브 데이터베이스 드라이버/클라이언트 라이브러리 로드 (미설치 시 docker exec fallback 사용)
+try:
+    import pymssql
+except ImportError:
+    pymssql = None
+
+try:
+    import redis as redis_lib
+except ImportError:
+    redis_lib = None
+
 # ANSI 색상 코드
 GREEN = "\033[92m"
 RED = "\033[91m"
@@ -87,20 +98,46 @@ def record_test(name: str, passed: bool, detail: str = ""):
 def test_mssql():
     print(f"\n{YELLOW}[1/3] MS SQL Server CRUD 테스트 ({MSSQL_USER}@{MSSQL_HOST}:{MSSQL_PORT}/{MSSQL_DB}){RESET}")
     print(f"  - 검증 테이블: {MSSQL_TABLE_USERS}, {MSSQL_TABLE_REDIS_SERVER}, {MSSQL_TABLE_CANVAS_INFO}, {MSSQL_TABLE_PYTHON_SERVER}")
+    if pymssql is not None:
+        print(f"  - 통신 모드: pymssql 네트워크 TCP 직접 연결 ({MSSQL_HOST}:{MSSQL_PORT})")
+    else:
+        print(f"  - 통신 모드: docker exec CLI fallback (pymssql 미설치)")
     
     def run_query(sql: str) -> str:
-        cmd = [
-            "docker", "exec", "agora-mssql",
-            "/opt/mssql-tools18/bin/sqlcmd",
-            "-S", "localhost",
-            "-U", MSSQL_USER,
-            "-P", MSSQL_PASS,
-            "-C", "-I", "-d", MSSQL_DB,
-            "-W", "-h", "-1",
-            "-Q", f"SET NOCOUNT ON; {sql}"
-        ]
-        res = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        return res.stdout.strip()
+        if pymssql is not None:
+            with pymssql.connect(
+                server=MSSQL_HOST,
+                port=int(MSSQL_PORT),
+                user=MSSQL_USER,
+                password=MSSQL_PASS,
+                database=MSSQL_DB,
+                autocommit=True
+            ) as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(sql)
+                    try:
+                        rows = cursor.fetchall()
+                        if rows and len(rows) > 0:
+                            val = rows[0][0]
+                            if isinstance(val, bool):
+                                return "1" if val else "0"
+                            return str(val)
+                        return ""
+                    except Exception:
+                        return ""
+        else:
+            cmd = [
+                "docker", "exec", "agora-mssql",
+                "/opt/mssql-tools18/bin/sqlcmd",
+                "-S", "localhost",
+                "-U", MSSQL_USER,
+                "-P", MSSQL_PASS,
+                "-C", "-I", "-d", MSSQL_DB,
+                "-W", "-h", "-1",
+                "-Q", f"SET NOCOUNT ON; {sql}"
+            ]
+            res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            return res.stdout.strip()
 
     try:
         # (1-1) 인증 및 dbo 권한 검증
@@ -184,6 +221,7 @@ def test_mssql():
 # ==============================================================================
 def test_elasticsearch():
     print(f"\n{YELLOW}[2/3] Elasticsearch CRUD/Search 테스트 ({ES_USER}@{ES_HOST}, 인덱스: {ES_INDEX}){RESET}")
+    print(f"  - 통신 모드: urllib.request 네트워크 HTTP REST API 직접 연결 ({ES_HOST})")
     
     auth_header = "Basic " + base64.b64encode(f"{ES_USER}:{ES_PASS}".encode()).decode()
 
@@ -278,17 +316,40 @@ def test_elasticsearch():
 def test_redis():
     print(f"\n{YELLOW}[3/3] Redis Stack CRUD/Search/Scope 테스트 ({REDIS_USER}@{REDIS_HOST}:{REDIS_PORT}){RESET}")
     print(f"  - 인덱스: {REDIS_INDEX_NAME}, 네임스페이스(Prefix): {REDIS_KEY_PREFIX}")
+    if redis_lib is not None:
+        print(f"  - 통신 모드: redis-py 네트워크 TCP 직접 연결 ({REDIS_HOST}:{REDIS_PORT})")
+    else:
+        print(f"  - 통신 모드: docker exec CLI fallback (redis 패키지 미설치)")
 
     def run_redis_cmd(*args) -> str:
-        cmd = [
-            "docker", "exec", "agora-redis-stack",
-            "redis-cli",
-            "--user", REDIS_USER,
-            "-a", REDIS_PASS,
-            "--no-auth-warning"
-        ] + list(args)
-        res = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        return res.stdout.strip()
+        if redis_lib is not None:
+            r = redis_lib.Redis(
+                host=REDIS_HOST,
+                port=int(REDIS_PORT),
+                username=REDIS_USER,
+                password=REDIS_PASS,
+                decode_responses=True
+            )
+            res = r.execute_command(*args)
+            if args and str(args[0]).lower() == "ping" and res is True:
+                return "PONG"
+            if res is True:
+                return "OK"
+            elif res is None:
+                return ""
+            elif isinstance(res, (list, tuple)):
+                return str(res)
+            return str(res)
+        else:
+            cmd = [
+                "docker", "exec", "agora-redis-stack",
+                "redis-cli",
+                "--user", REDIS_USER,
+                "-a", REDIS_PASS,
+                "--no-auth-warning"
+            ] + list(args)
+            res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            return res.stdout.strip()
 
     test_key = f"{REDIS_KEY_PREFIX}test-py"
 
@@ -325,10 +386,10 @@ def test_redis():
         # (3-8) 타 키 접근 차단 검증 [Scope Restriction]
         try:
             forbid_res = run_redis_cmd("SET", "other:forbidden", "val")
-            record_test("타 네임스페이스 키 접근 차단 [Scope Restriction]", "NOPERM" in forbid_res, forbid_res)
-        except subprocess.CalledProcessError as err:
-            err_output = err.stderr or err.stdout
-            record_test("타 네임스페이스 키 접근 차단 [Scope Restriction] (NOPERM 거절 확인)", "NOPERM" in err_output, err_output)
+            record_test("타 네임스페이스 키 접근 차단 [Scope Restriction]", "NOPERM" in forbid_res or "permissions" in forbid_res, forbid_res)
+        except Exception as err:
+            err_msg = str(err)
+            record_test("타 네임스페이스 키 접근 차단 [Scope Restriction] (권한 거절 확인)", "NOPERM" in err_msg or "permissions" in err_msg.lower(), err_msg)
     except Exception as e:
         record_test("Redis 명령어 실행 실패", False, str(e))
 
