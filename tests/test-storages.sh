@@ -66,7 +66,10 @@ if [ -f "$ROOT_DIR/mssql/.env" ]; then
   if [ -z "$MSSQL_TABLE_CANVAS_INFO" ]; then
     MSSQL_TABLE_CANVAS_INFO=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep 'MSSQL_TABLE_CANVAS_CACHE=' | cut -d '=' -f2- | tr -d '\r' || echo "canvas_info")
   fi
-  MSSQL_TABLE_PYTHON_SERVER=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep 'MSSQL_TABLE_PYTHON_SERVER=' | cut -d '=' -f2- | tr -d '\r' || echo "python_server")
+  MSSQL_TABLE_CPP_SERVER=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep 'MSSQL_TABLE_CPP_SERVER=' | cut -d '=' -f2- | tr -d '\r' || true)
+  if [ -z "$MSSQL_TABLE_CPP_SERVER" ]; then
+    MSSQL_TABLE_CPP_SERVER=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep 'MSSQL_TABLE_PYTHON_SERVER=' | cut -d '=' -f2- | tr -d '\r' || echo "cpp_server")
+  fi
 else
   MSSQL_HOST="127.0.0.1"
   MSSQL_PORT="1433"
@@ -76,19 +79,18 @@ else
   MSSQL_TABLE_USERS="users"
   MSSQL_TABLE_REDIS_SERVER="redis_server"
   MSSQL_TABLE_CANVAS_INFO="canvas_info"
-  MSSQL_TABLE_PYTHON_SERVER="python_server"
+  MSSQL_TABLE_CPP_SERVER="cpp_server"
 fi
 
 echo "  - 접속 정보: $MSSQL_USER@$MSSQL_HOST:$MSSQL_PORT/$MSSQL_DB"
-echo "  - 검증 테이블: $MSSQL_TABLE_USERS, $MSSQL_TABLE_REDIS_SERVER, $MSSQL_TABLE_CANVAS_INFO, $MSSQL_TABLE_PYTHON_SERVER"
+echo "  - 검증 테이블: $MSSQL_TABLE_USERS, $MSSQL_TABLE_REDIS_SERVER, $MSSQL_TABLE_CANVAS_INFO, $MSSQL_TABLE_CPP_SERVER"
 
 run_mssql_query() {
   local query="$1"
   if command -v sqlcmd &> /dev/null; then
     sqlcmd -S "$MSSQL_HOST,$MSSQL_PORT" -U "$MSSQL_USER" -P "$MSSQL_PASS" -C -I -d "$MSSQL_DB" -Q "$query" -W -h -1 2>&1
   else
-    docker exec agora-mssql /opt/mssql-tools18/bin/sqlcmd \
-      -S localhost -U "$MSSQL_USER" -P "$MSSQL_PASS" -C -I -d "$MSSQL_DB" -Q "$query" -W -h -1 2>&1
+    docker exec agora-mssql bash -c "/opt/mssql-tools18/bin/sqlcmd -S localhost -U \"$MSSQL_USER\" -P \"$MSSQL_PASS\" -C -I -d \"$MSSQL_DB\" -W -h -1 -Q \"$query\"" 2>&1
   fi
 }
 
@@ -100,19 +102,19 @@ else
   log_test_fail "사용자 인증 또는 DB 소유권 확인 실패" "$AUTH_OUT"
 fi
 
-# (1-2) 설정된 테이블 존재 여부 확인 (users, redis_server, canvas_info, python_server 총 4개)
-TBL_CHECK_OUT=$(run_mssql_query "SET NOCOUNT ON; SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME IN ('$MSSQL_TABLE_USERS', '$MSSQL_TABLE_REDIS_SERVER', '$MSSQL_TABLE_CANVAS_INFO', '$MSSQL_TABLE_PYTHON_SERVER');" | tr -dc '0-9')
+# (1-2) 설정된 테이블 존재 여부 확인 (users, redis_server, canvas_info, cpp_server 총 4개)
+TBL_CHECK_OUT=$(run_mssql_query "SET NOCOUNT ON; SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME IN ('$MSSQL_TABLE_USERS', '$MSSQL_TABLE_REDIS_SERVER', '$MSSQL_TABLE_CANVAS_INFO', '$MSSQL_TABLE_CPP_SERVER');" | tr -dc '0-9')
 if [ "$TBL_CHECK_OUT" = "4" ]; then
-  log_test_pass "환경변수 지정 테이블($MSSQL_TABLE_USERS, $MSSQL_TABLE_REDIS_SERVER, $MSSQL_TABLE_CANVAS_INFO, $MSSQL_TABLE_PYTHON_SERVER) 생성 확인"
+  log_test_pass "환경변수 지정 테이블($MSSQL_TABLE_USERS, $MSSQL_TABLE_REDIS_SERVER, $MSSQL_TABLE_CANVAS_INFO, $MSSQL_TABLE_CPP_SERVER) 생성 확인"
 else
   log_test_fail "테이블 생성 확인 실패 (발견된 테이블 수: $TBL_CHECK_OUT / 4)" "$TBL_CHECK_OUT"
 fi
 
-# (1-3) 회원 테이블($MSSQL_TABLE_USERS) CRUD 테스트
+# (1-3) 회원 테이블($MSSQL_TABLE_USERS) CRUD 테스트 (is_accessed, server_ip, server_port 포함)
 USER_EMAIL="test_crud_user@agora.com"
-MSSQL_USER_INS=$(run_mssql_query "SET NOCOUNT ON; INSERT INTO [$MSSQL_TABLE_USERS] (email, nickname, role, status) VALUES ('$USER_EMAIL', N'AgoraTester', 'ROLE_USER', 'ACTIVE'); SELECT COUNT(*) FROM [$MSSQL_TABLE_USERS] WHERE email = '$USER_EMAIL';" | tr -dc '0-9')
+MSSQL_USER_INS=$(run_mssql_query "SET NOCOUNT ON; INSERT INTO [$MSSQL_TABLE_USERS] (email, nickname, role, status, is_accessed, server_ip, server_port) VALUES ('$USER_EMAIL', N'AgoraTester', 'ROLE_USER', 'ACTIVE', 1, '127.0.0.1', '8000'); SELECT COUNT(*) FROM [$MSSQL_TABLE_USERS] WHERE email = '$USER_EMAIL';" | tr -dc '0-9')
 if [ "$MSSQL_USER_INS" = "1" ]; then
-  log_test_pass "회원 테이블($MSSQL_TABLE_USERS) 데이터 삽입 [Create] 성공"
+  log_test_pass "회원 테이블($MSSQL_TABLE_USERS) 데이터 삽입 [Create] 성공 (is_accessed, server_ip, server_port 포함)"
 else
   log_test_fail "회원 테이블 데이터 삽입 실패" "$MSSQL_USER_INS"
 fi
@@ -124,9 +126,9 @@ else
   log_test_fail "회원 테이블 데이터 조회 실패" "$MSSQL_USER_READ"
 fi
 
-MSSQL_USER_UPD=$(run_mssql_query "SET NOCOUNT ON; UPDATE [$MSSQL_TABLE_USERS] SET status = 'SUSPENDED' WHERE email = '$USER_EMAIL'; SELECT status FROM [$MSSQL_TABLE_USERS] WHERE email = '$USER_EMAIL';" | tr -d '[:space:]')
+MSSQL_USER_UPD=$(run_mssql_query "SET NOCOUNT ON; UPDATE [$MSSQL_TABLE_USERS] SET status = 'SUSPENDED', is_accessed = 0 WHERE email = '$USER_EMAIL'; SELECT status FROM [$MSSQL_TABLE_USERS] WHERE email = '$USER_EMAIL';" | tr -d '[:space:]')
 if [ "$MSSQL_USER_UPD" = "SUSPENDED" ]; then
-  log_test_pass "회원 테이블($MSSQL_TABLE_USERS) 데이터 수정 [Update] 성공 (ACTIVE -> SUSPENDED)"
+  log_test_pass "회원 테이블($MSSQL_TABLE_USERS) 데이터 수정 [Update] 성공 (ACTIVE -> SUSPENDED, is_accessed: 0)"
 else
   log_test_fail "회원 테이블 데이터 수정 실패" "$MSSQL_USER_UPD"
 fi
@@ -141,9 +143,9 @@ fi
 # (1-4) 캔버스 정보 및 Redis 서버 테이블($MSSQL_TABLE_REDIS_SERVER, $MSSQL_TABLE_CANVAS_INFO) CRUD 테스트
 TEST_CACHE_REDIS_IP="127.0.0.99"
 TEST_CACHE_REDIS_PORT="6399"
-MSSQL_INS_OUT=$(run_mssql_query "SET NOCOUNT ON; DECLARE @uid INT; INSERT INTO [$MSSQL_TABLE_USERS] (email, nickname, role, status) VALUES ('canvas_owner@agora.com', N'CanvasOwner', 'ROLE_USER', 'ACTIVE'); SET @uid = SCOPE_IDENTITY(); INSERT INTO [$MSSQL_TABLE_REDIS_SERVER] (redis_ip, redis_port) VALUES ('$TEST_CACHE_REDIS_IP', '$TEST_CACHE_REDIS_PORT'); INSERT INTO [$MSSQL_TABLE_CANVAS_INFO] (canvas_id, canvas_name, redis_ip, redis_port, user_id, is_cached) VALUES (9999, N'test-crud-canvas', '$TEST_CACHE_REDIS_IP', '$TEST_CACHE_REDIS_PORT', @uid, 0); SELECT COUNT(*) FROM [$MSSQL_TABLE_CANVAS_INFO] WHERE canvas_id = 9999;" | tr -dc '0-9')
+MSSQL_INS_OUT=$(run_mssql_query "SET NOCOUNT ON; INSERT INTO [$MSSQL_TABLE_REDIS_SERVER] (redis_ip, redis_port, is_activated) VALUES ('$TEST_CACHE_REDIS_IP', '$TEST_CACHE_REDIS_PORT', 1); INSERT INTO [$MSSQL_TABLE_CANVAS_INFO] (canvas_id, redis_ip, redis_port, is_cached) VALUES (9999, '$TEST_CACHE_REDIS_IP', '$TEST_CACHE_REDIS_PORT', 0); SELECT COUNT(*) FROM [$MSSQL_TABLE_CANVAS_INFO] WHERE canvas_id = 9999;" | tr -dc '0-9')
 if [ "$MSSQL_INS_OUT" = "1" ]; then
-  log_test_pass "캔버스 정보 테이블($MSSQL_TABLE_CANVAS_INFO) 데이터 삽입 [Create] 성공 (canvas_id: 9999, user_id FK 연동)"
+  log_test_pass "캔버스 정보 테이블($MSSQL_TABLE_CANVAS_INFO) 데이터 삽입 [Create] 성공 (canvas_id: 9999, Redis FK 연동)"
 else
   log_test_fail "캔버스 정보 테이블 데이터 삽입 실패" "$MSSQL_INS_OUT"
 fi
@@ -165,45 +167,45 @@ else
 fi
 
 # (1-7) 데이터 삭제 [Delete]
-MSSQL_DEL_OUT=$(run_mssql_query "SET NOCOUNT ON; DELETE FROM [$MSSQL_TABLE_CANVAS_INFO] WHERE canvas_id = 9999; DELETE FROM [$MSSQL_TABLE_USERS] WHERE email = 'canvas_owner@agora.com'; DELETE FROM [$MSSQL_TABLE_REDIS_SERVER] WHERE redis_ip = '$TEST_CACHE_REDIS_IP' AND redis_port = '$TEST_CACHE_REDIS_PORT'; SELECT COUNT(*) FROM [$MSSQL_TABLE_CANVAS_INFO] WHERE canvas_id = 9999;" | tr -dc '0-9')
+MSSQL_DEL_OUT=$(run_mssql_query "SET NOCOUNT ON; DELETE FROM [$MSSQL_TABLE_CANVAS_INFO] WHERE canvas_id = 9999; DELETE FROM [$MSSQL_TABLE_REDIS_SERVER] WHERE redis_ip = '$TEST_CACHE_REDIS_IP' AND redis_port = '$TEST_CACHE_REDIS_PORT'; SELECT COUNT(*) FROM [$MSSQL_TABLE_CANVAS_INFO] WHERE canvas_id = 9999;" | tr -dc '0-9')
 if [ "$MSSQL_DEL_OUT" = "0" ]; then
   log_test_pass "캔버스 정보 테이블($MSSQL_TABLE_CANVAS_INFO, $MSSQL_TABLE_REDIS_SERVER) 데이터 삭제 [Delete] 성공 (클린업 완료)"
 else
   log_test_fail "캔버스 정보 테이블 데이터 삭제 실패" "$MSSQL_DEL_OUT"
 fi
 
-# (1-8) Python 서버 테이블($MSSQL_TABLE_PYTHON_SERVER) 데이터 삽입 [Create]
-TEST_PY_SERVER_IP="127.0.0.1"
-TEST_PY_SERVER_PORT="8000"
-MSSQL_PY_INS=$(run_mssql_query "SET NOCOUNT ON; INSERT INTO [$MSSQL_TABLE_PYTHON_SERVER] (server_ip, server_port) VALUES ('$TEST_PY_SERVER_IP', '$TEST_PY_SERVER_PORT'); SELECT COUNT(*) FROM [$MSSQL_TABLE_PYTHON_SERVER] WHERE server_ip = '$TEST_PY_SERVER_IP' AND server_port = '$TEST_PY_SERVER_PORT';" | tr -dc '0-9')
-if [ "$MSSQL_PY_INS" = "1" ]; then
-  log_test_pass "Python 서버 테이블($MSSQL_TABLE_PYTHON_SERVER) 데이터 삽입 [Create] 성공 ($TEST_PY_SERVER_IP:$TEST_PY_SERVER_PORT)"
+# (1-8) C++ 실시간 서버 테이블($MSSQL_TABLE_CPP_SERVER) 데이터 삽입 [Create] (is_activated 포함)
+TEST_CPP_SERVER_IP="127.0.0.1"
+TEST_CPP_SERVER_PORT="8000"
+MSSQL_CPP_INS=$(run_mssql_query "SET NOCOUNT ON; INSERT INTO [$MSSQL_TABLE_CPP_SERVER] (server_ip, server_port, is_activated) VALUES ('$TEST_CPP_SERVER_IP', '$TEST_CPP_SERVER_PORT', 1); SELECT COUNT(*) FROM [$MSSQL_TABLE_CPP_SERVER] WHERE server_ip = '$TEST_CPP_SERVER_IP' AND server_port = '$TEST_CPP_SERVER_PORT';" | tr -dc '0-9')
+if [ "$MSSQL_CPP_INS" = "1" ]; then
+  log_test_pass "C++ 실시간 서버 테이블($MSSQL_TABLE_CPP_SERVER) 데이터 삽입 [Create] 성공 ($TEST_CPP_SERVER_IP:$TEST_CPP_SERVER_PORT, is_activated: 1)"
 else
-  log_test_fail "Python 서버 테이블 데이터 삽입 실패" "$MSSQL_PY_INS"
+  log_test_fail "C++ 실시간 서버 테이블 데이터 삽입 실패" "$MSSQL_CPP_INS"
 fi
 
-# (1-9) Python 서버 테이블($MSSQL_TABLE_PYTHON_SERVER) 데이터 조회 [Read]
-MSSQL_PY_READ=$(run_mssql_query "SET NOCOUNT ON; SELECT server_port FROM [$MSSQL_TABLE_PYTHON_SERVER] WHERE server_ip = '$TEST_PY_SERVER_IP' AND server_port = '$TEST_PY_SERVER_PORT';" | tr -dc '0-9')
-if [ "$MSSQL_PY_READ" = "8000" ]; then
-  log_test_pass "Python 서버 테이블($MSSQL_TABLE_PYTHON_SERVER) 데이터 조회 [Read] 성공 (port: 8000)"
+# (1-9) C++ 실시간 서버 테이블($MSSQL_TABLE_CPP_SERVER) 데이터 조회 [Read]
+MSSQL_CPP_READ=$(run_mssql_query "SET NOCOUNT ON; SELECT server_port FROM [$MSSQL_TABLE_CPP_SERVER] WHERE server_ip = '$TEST_CPP_SERVER_IP' AND server_port = '$TEST_CPP_SERVER_PORT';" | tr -dc '0-9')
+if [ "$MSSQL_CPP_READ" = "8000" ]; then
+  log_test_pass "C++ 실시간 서버 테이블($MSSQL_TABLE_CPP_SERVER) 데이터 조회 [Read] 성공 (port: 8000)"
 else
-  log_test_fail "Python 서버 테이블 데이터 조회 실패" "$MSSQL_PY_READ"
+  log_test_fail "C++ 실시간 서버 테이블 데이터 조회 실패" "$MSSQL_CPP_READ"
 fi
 
-# (1-10) Python 서버 테이블($MSSQL_TABLE_PYTHON_SERVER) 데이터 수정 [Update]
-MSSQL_PY_UPD=$(run_mssql_query "SET NOCOUNT ON; UPDATE [$MSSQL_TABLE_PYTHON_SERVER] SET server_port = '8080' WHERE server_ip = '$TEST_PY_SERVER_IP' AND server_port = '$TEST_PY_SERVER_PORT'; SELECT server_port FROM [$MSSQL_TABLE_PYTHON_SERVER] WHERE server_ip = '$TEST_PY_SERVER_IP' AND server_port = '8080';" | tr -dc '0-9')
-if [ "$MSSQL_PY_UPD" = "8080" ]; then
-  log_test_pass "Python 서버 테이블($MSSQL_TABLE_PYTHON_SERVER) 데이터 수정 [Update] 성공 (8000 -> 8080)"
+# (1-10) C++ 실시간 서버 테이블($MSSQL_TABLE_CPP_SERVER) 데이터 수정 [Update]
+MSSQL_CPP_UPD=$(run_mssql_query "SET NOCOUNT ON; UPDATE [$MSSQL_TABLE_CPP_SERVER] SET server_port = '8080', is_activated = 0 WHERE server_ip = '$TEST_CPP_SERVER_IP' AND server_port = '$TEST_CPP_SERVER_PORT'; SELECT server_port FROM [$MSSQL_TABLE_CPP_SERVER] WHERE server_ip = '$TEST_CPP_SERVER_IP' AND server_port = '8080';" | tr -dc '0-9')
+if [ "$MSSQL_CPP_UPD" = "8080" ]; then
+  log_test_pass "C++ 실시간 서버 테이블($MSSQL_TABLE_CPP_SERVER) 데이터 수정 [Update] 성공 (8000 -> 8080)"
 else
-  log_test_fail "Python 서버 테이블 데이터 수정 실패" "$MSSQL_PY_UPD"
+  log_test_fail "C++ 실시간 서버 테이블 데이터 수정 실패" "$MSSQL_CPP_UPD"
 fi
 
-# (1-11) Python 서버 테이블($MSSQL_TABLE_PYTHON_SERVER) 데이터 삭제 [Delete]
-MSSQL_PY_DEL=$(run_mssql_query "SET NOCOUNT ON; DELETE FROM [$MSSQL_TABLE_PYTHON_SERVER] WHERE server_ip = '$TEST_PY_SERVER_IP' AND server_port = '8080'; SELECT COUNT(*) FROM [$MSSQL_TABLE_PYTHON_SERVER] WHERE server_ip = '$TEST_PY_SERVER_IP' AND server_port = '8080';" | tr -dc '0-9')
-if [ "$MSSQL_PY_DEL" = "0" ]; then
-  log_test_pass "Python 서버 테이블($MSSQL_TABLE_PYTHON_SERVER) 데이터 삭제 [Delete] 성공 (클린업 완료)"
+# (1-11) C++ 실시간 서버 테이블($MSSQL_TABLE_CPP_SERVER) 데이터 삭제 [Delete]
+MSSQL_CPP_DEL=$(run_mssql_query "SET NOCOUNT ON; DELETE FROM [$MSSQL_TABLE_CPP_SERVER] WHERE server_ip = '$TEST_CPP_SERVER_IP' AND server_port = '8080'; SELECT COUNT(*) FROM [$MSSQL_TABLE_CPP_SERVER] WHERE server_ip = '$TEST_CPP_SERVER_IP' AND server_port = '8080';" | tr -dc '0-9')
+if [ "$MSSQL_CPP_DEL" = "0" ]; then
+  log_test_pass "C++ 실시간 서버 테이블($MSSQL_TABLE_CPP_SERVER) 데이터 삭제 [Delete] 성공 (클린업 완료)"
 else
-  log_test_fail "Python 서버 테이블 데이터 삭제 실패" "$MSSQL_PY_DEL"
+  log_test_fail "C++ 실시간 서버 테이블 데이터 삭제 실패" "$MSSQL_CPP_DEL"
 fi
 
 echo ""
@@ -256,42 +258,68 @@ else
   log_test_fail "인덱스($ES_INDEX) 접근 실패 (HTTP $ES_IDX_STATUS)"
 fi
 
-# (2-3) 도큐먼트 삽입 [Create]
+# (2-3) 도큐먼트 삽입 [Create] (신규 캔버스 스키마 반영)
 ES_DOC_ID="test-crud-doc"
+ES_DOC_PAYLOAD=$(cat <<EOF
+{
+  "canvas-id": 8888,
+  "canvas-name": "Agora Test Canvas",
+  "admin-user-id": 999,
+  "description": "this is test description",
+  "canvas-password-hash": "hash_password_sample",
+  "people": [1, 2, 3, 4],
+  "inner-group": {
+    "group-name1": [1, 2],
+    "group-name2": [3, 4]
+  },
+  "items": {
+    "item-1": {
+      "item-id": 1,
+      "type": 10,
+      "pos": [120.5, 340.0, 1],
+      "data1": "sample metadata",
+      "permission": ["admin-group", "group-name1"]
+    }
+  },
+  "init-group": "group-name1"
+}
+EOF
+)
+
 ES_INS_RESP=$(curl -s -u "$ES_USER:$ES_PASS" -X PUT "$ES_URL/$ES_INDEX/_doc/$ES_DOC_ID?refresh=true" \
   -H 'Content-Type: application/json' \
-  -d '{"canvas-name": "Agora Test Canvas", "canvas-id": 8888, "admin": 999, "canvas-password": "hash_password_sample"}')
+  -d "$ES_DOC_PAYLOAD")
 if echo "$ES_INS_RESP" | grep -qE '"result":"(created|updated)"'; then
-  log_test_pass "인덱스($ES_INDEX) 도큐먼트 삽입 [Create] 성공 (canvas-password 포함)"
+  log_test_pass "인덱스($ES_INDEX) 도큐먼트 삽입 [Create] 성공 (신규 캔버스 JSON 명세 구조)"
 else
   log_test_fail "인덱스($ES_INDEX) 도큐먼트 삽입 실패" "$ES_INS_RESP"
 fi
 
 # (2-4) 도큐먼트 단건 조회 [Read]
 ES_GET_RESP=$(curl -s -u "$ES_USER:$ES_PASS" -X GET "$ES_URL/$ES_INDEX/_doc/$ES_DOC_ID")
-if echo "$ES_GET_RESP" | grep -q '"found":true'; then
-  log_test_pass "인덱스($ES_INDEX) 도큐먼트 단건 조회 [Read] 성공"
+if echo "$ES_GET_RESP" | grep -q '"found":true' && echo "$ES_GET_RESP" | grep -qE '"admin-user-id"[[:space:]]*:[[:space:]]*999'; then
+  log_test_pass "인덱스($ES_INDEX) 도큐먼트 단건 조회 [Read] 성공 (admin-user-id 확인)"
 else
   log_test_fail "인덱스($ES_INDEX) 도큐먼트 조회 실패" "$ES_GET_RESP"
 fi
 
-# (2-5) 검색 쿼리 수행 [Search]
+# (2-5) 검색 쿼리 수행 [Search] (description 및 canvas-name match)
 ES_SEARCH_STATUS=$(curl -s -o /tmp/es_search_resp.json -w "%{http_code}" -u "$ES_USER:$ES_PASS" -X POST "$ES_URL/$ES_INDEX/_search" \
   -H 'Content-Type: application/json' \
-  -d '{"query": {"match": {"canvas-name": "Agora"}}}')
+  -d '{"query": {"match": {"description": "description"}}}')
 if [ "$ES_SEARCH_STATUS" = "200" ] && grep -q '"hits":' /tmp/es_search_resp.json; then
-  log_test_pass "인덱스($ES_INDEX) 검색 쿼리 [Search] (match: Agora) 성공"
+  log_test_pass "인덱스($ES_INDEX) 검색 쿼리 [Search] (match description: description) 성공"
 else
   log_test_fail "인덱스($ES_INDEX) 검색 쿼리 실패 (HTTP $ES_SEARCH_STATUS)" "$(cat /tmp/es_search_resp.json 2>/dev/null)"
 fi
 rm -f /tmp/es_search_resp.json
 
-# (2-6) 도큐먼트 수정 [Update] (canvas-password를 null로 변경하여 none 허용 검증)
+# (2-6) 도큐먼트 수정 [Update] (canvas-password-hash를 공백으로 변경하여 퍼블릭 캔버스 검증)
 ES_UPD_RESP=$(curl -s -u "$ES_USER:$ES_PASS" -X POST "$ES_URL/$ES_INDEX/_update/$ES_DOC_ID" \
   -H 'Content-Type: application/json' \
-  -d '{"doc": {"canvas-name": "Agora Test Canvas Updated", "canvas-password": null}}')
+  -d '{"doc": {"canvas-name": "Agora Test Canvas Updated", "canvas-password-hash": ""}}')
 if echo "$ES_UPD_RESP" | grep -q '"result":"updated"'; then
-  log_test_pass "인덱스($ES_INDEX) 도큐먼트 수정 [Update] 성공"
+  log_test_pass "인덱스($ES_INDEX) 도큐먼트 수정 [Update] 성공 (canvas-password-hash: 공백)"
 else
   log_test_fail "인덱스($ES_INDEX) 도큐먼트 수정 실패" "$ES_UPD_RESP"
 fi
@@ -367,35 +395,37 @@ fi
 
 TEST_REDIS_KEY="${REDIS_KEY_PREFIX}test-crud"
 
-# (3-3) 데이터 삽입 [Create] (canvas-password 포함)
-REDIS_INSERT_OUT=$(run_redis_user_cmd JSON.SET "$TEST_REDIS_KEY" $ '{"canvas-name":"Test CRUD Canvas","canvas-id":100,"admin":1000,"canvas-password":"hash_secret_example"}')
+# (3-3) 데이터 삽입 [Create] (신규 캔버스 스키마 반영)
+REDIS_JSON_PAYLOAD='{"canvas-id":100,"canvas-name":"Test CRUD Canvas","admin-user-id":1000,"description":"this is test description","canvas-password-hash":"hash_secret_example","people":[1,2,3,4],"inner-group":{"g1":[1,2]},"items":{"item-1":{"item-id":1,"type":10,"pos":[120.5,340.0,1],"data1":"sample metadata","permission":["admin-group","g1"]}},"init-group":"g1"}'
+
+REDIS_INSERT_OUT=$(run_redis_user_cmd JSON.SET "$TEST_REDIS_KEY" $ "$REDIS_JSON_PAYLOAD")
 if echo "$REDIS_INSERT_OUT" | grep -q "OK"; then
-  log_test_pass "RedisJSON 데이터 삽입 [Create] ($TEST_REDIS_KEY, canvas-password 포함) 성공"
+  log_test_pass "RedisJSON 데이터 삽입 [Create] ($TEST_REDIS_KEY, 신규 캔버스 JSON 명세 구조) 성공"
 else
   log_test_fail "RedisJSON 데이터 삽입 실패" "$REDIS_INSERT_OUT"
 fi
 
 # (3-4) 데이터 조회 [Read]
 REDIS_JSON_OUT=$(run_redis_user_cmd JSON.GET "$TEST_REDIS_KEY")
-if echo "$REDIS_JSON_OUT" | grep -q "Test CRUD Canvas"; then
-  log_test_pass "RedisJSON 데이터 조회 [Read] ($TEST_REDIS_KEY) 성공"
+if echo "$REDIS_JSON_OUT" | grep -q "Test CRUD Canvas" && echo "$REDIS_JSON_OUT" | grep -q '"admin-user-id":1000'; then
+  log_test_pass "RedisJSON 데이터 조회 [Read] ($TEST_REDIS_KEY) 성공 (admin-user-id 확인)"
 else
   log_test_fail "RedisJSON 데이터 조회 실패" "$REDIS_JSON_OUT"
 fi
 
-# (3-5) RediSearch 검색 쿼리 수행 [Search]
-REDIS_SEARCH_OUT=$(run_redis_user_cmd FT.SEARCH "$REDIS_INDEX_NAME" "@admin:[1000 1000]")
+# (3-5) RediSearch 검색 쿼리 수행 [Search] (admin_user_id 기반 검색)
+REDIS_SEARCH_OUT=$(run_redis_user_cmd FT.SEARCH "$REDIS_INDEX_NAME" "@admin_user_id:[1000 1000]")
 if echo "$REDIS_SEARCH_OUT" | grep -q "$TEST_REDIS_KEY"; then
-  log_test_pass "RediSearch 검색 쿼리 [Search] (FT.SEARCH $REDIS_INDEX_NAME) 성공"
+  log_test_pass "RediSearch 검색 쿼리 [Search] (FT.SEARCH $REDIS_INDEX_NAME @admin_user_id) 성공"
 else
   log_test_fail "RediSearch 검색 쿼리 실패" "$REDIS_SEARCH_OUT"
 fi
 
-# (3-6) 데이터 수정 [Update] (admin 수정 및 canvas-password none 설정 허용 확인)
-REDIS_UPDATE_OUT=$(run_redis_user_cmd JSON.SET "$TEST_REDIS_KEY" $.admin 2000)
-run_redis_user_cmd JSON.SET "$TEST_REDIS_KEY" '$["canvas-password"]' 'null'
+# (3-6) 데이터 수정 [Update] (admin-user-id 수정 및 canvas-password-hash 공백 변경)
+REDIS_UPDATE_OUT=$(run_redis_user_cmd JSON.SET "$TEST_REDIS_KEY" '$["admin-user-id"]' 2000)
+run_redis_user_cmd JSON.SET "$TEST_REDIS_KEY" '$["canvas-password-hash"]' '""'
 if echo "$REDIS_UPDATE_OUT" | grep -q "OK"; then
-  log_test_pass "RedisJSON 데이터 수정 [Update] ($TEST_REDIS_KEY $.admin 2000, canvas-password: null) 성공"
+  log_test_pass "RedisJSON 데이터 수정 [Update] ($TEST_REDIS_KEY $.admin-user-id 2000, hash: 공백) 성공"
 else
   log_test_fail "RedisJSON 데이터 수정 실패" "$REDIS_UPDATE_OUT"
 fi

@@ -57,19 +57,36 @@ echo "[OK] 사용자($REDIS_USER) ACL 생성 완료 (허용 대상: ~${REDIS_KEY
 echo -e "\n=== 2. Redis Stack RediSearch 인덱스 ($REDIS_INDEX_NAME) 생성 ==="
 # 인덱스가 이미 존재하는지 확인
 if run_admin_cli FT._LIST | grep -q "^${REDIS_INDEX_NAME}$"; then
-  echo "인덱스(${REDIS_INDEX_NAME})가 이미 존재합니다. 스키마 속성을 동기화합니다..."
-  # canvas-password 속성이 없는 경우 추가
-  if ! run_admin_cli FT.INFO "$REDIS_INDEX_NAME" | grep -q "canvas_password"; then
-    run_admin_cli FT.ALTER "$REDIS_INDEX_NAME" SCHEMA ADD '$["canvas-password"]' AS canvas_password TAG
-    echo "[OK] RediSearch 인덱스($REDIS_INDEX_NAME)에 canvas_password 속성 추가 완료"
+  echo "인덱스(${REDIS_INDEX_NAME})가 이미 존재합니다. 최신 스키마 템플릿 적용을 위해 인덱스를 재동기화합니다..."
+  NUM_DOCS=$(run_admin_cli FT.INFO "$REDIS_INDEX_NAME" | grep -A 1 "num_docs" | tail -n 1 | tr -dc '0-9' || echo "0")
+  if [ "$NUM_DOCS" = "0" ] || [ -z "$NUM_DOCS" ]; then
+    run_admin_cli FT.DROPINDEX "$REDIS_INDEX_NAME"
+    run_admin_cli FT.CREATE "$REDIS_INDEX_NAME" ON JSON PREFIX 1 "$REDIS_KEY_PREFIX" SCHEMA \
+        '$["canvas-name"]' AS canvas_name TEXT SORTABLE \
+        '$["canvas-id"]' AS canvas_id NUMERIC SORTABLE \
+        '$["admin-user-id"]' AS admin_user_id NUMERIC \
+        '$.description' AS description TEXT \
+        '$["canvas-password-hash"]' AS canvas_password_hash TAG \
+        '$.people[*]' AS people NUMERIC \
+        '$["init-group"]' AS init_group TAG
+    echo "[OK] RediSearch 인덱스($REDIS_INDEX_NAME) 최신 스키마로 재생성 완료"
+  else
+    if ! run_admin_cli FT.INFO "$REDIS_INDEX_NAME" | grep -q "canvas_password_hash"; then
+      run_admin_cli FT.ALTER "$REDIS_INDEX_NAME" SCHEMA ADD '$["admin-user-id"]' AS admin_user_id NUMERIC
+      run_admin_cli FT.ALTER "$REDIS_INDEX_NAME" SCHEMA ADD '$.description' AS description TEXT
+      run_admin_cli FT.ALTER "$REDIS_INDEX_NAME" SCHEMA ADD '$["canvas-password-hash"]' AS canvas_password_hash TAG
+      run_admin_cli FT.ALTER "$REDIS_INDEX_NAME" SCHEMA ADD '$.people[*]' AS people NUMERIC
+      echo "[OK] RediSearch 인덱스($REDIS_INDEX_NAME) 속성 추가 완료"
+    fi
   fi
 else
   run_admin_cli FT.CREATE "$REDIS_INDEX_NAME" ON JSON PREFIX 1 "$REDIS_KEY_PREFIX" SCHEMA \
       '$["canvas-name"]' AS canvas_name TEXT SORTABLE \
       '$["canvas-id"]' AS canvas_id NUMERIC SORTABLE \
-      '$.admin' AS admin NUMERIC \
-      '$["canvas-password"]' AS canvas_password TAG \
-      '$.peoples[*]' AS peoples NUMERIC \
+      '$["admin-user-id"]' AS admin_user_id NUMERIC \
+      '$.description' AS description TEXT \
+      '$["canvas-password-hash"]' AS canvas_password_hash TAG \
+      '$.people[*]' AS people NUMERIC \
       '$["init-group"]' AS init_group TAG
   echo "[OK] RediSearch 인덱스($REDIS_INDEX_NAME) 생성 완료 (초기 데이터 미삽입)"
 fi

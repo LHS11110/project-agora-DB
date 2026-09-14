@@ -58,21 +58,39 @@ echo -e "\n[OK] 사용자($ES_USER) 생성 완료"
 
 echo -e "\n=== 3. Elasticsearch 인덱스 ($INDEX_NAME) 매핑 생성 ==="
 
-# 인덱스가 이미 존재하는지 확인 후 없을 때만 생성
+# 인덱스가 이미 존재하는지 확인 후 없을 때만 생성 (기존 문서가 없을 경우 최신 템플릿 적용을 위해 재생성)
 INDEX_EXISTS=$(curl -s -o /dev/null -w "%{http_code}" -u "$ES_SUPER_USER:$ES_SUPER_PASS" "$ES_HOST/$INDEX_NAME")
 if [ "$INDEX_EXISTS" = "200" ]; then
-  echo "인덱스($INDEX_NAME)가 이미 존재합니다. 최신 필드 매핑(canvas-password)을 동기화합니다..."
-  curl -s -f -u "$ES_SUPER_USER:$ES_SUPER_PASS" -X PUT "$ES_HOST/$INDEX_NAME/_mapping" \
-       -H 'Content-Type: application/json' \
-       -d '{
-    "properties": {
-      "canvas-password": {
-        "type": "keyword"
+  DOC_COUNT=$(curl -s -u "$ES_SUPER_USER:$ES_SUPER_PASS" "$ES_HOST/$INDEX_NAME/_count" | grep -o '"count":[0-9]*' | cut -d':' -f2 || echo "0")
+  if [ "$DOC_COUNT" = "0" ]; then
+    echo "인덱스($INDEX_NAME)에 저장된 데이터가 없습니다(count: 0). 최신 스키마 템플릿 적용을 위해 재생성합니다..."
+    curl -s -f -u "$ES_SUPER_USER:$ES_SUPER_PASS" -X DELETE "$ES_HOST/$INDEX_NAME" > /dev/null
+    INDEX_EXISTS="404"
+  else
+    echo "인덱스($INDEX_NAME)가 이미 존재하며 기존 문서가 있습니다. 최신 필드 매핑을 동기화합니다..."
+    curl -s -f -u "$ES_SUPER_USER:$ES_SUPER_PASS" -X PUT "$ES_HOST/$INDEX_NAME/_mapping" \
+         -H 'Content-Type: application/json' \
+         -d '{
+      "properties": {
+        "admin-user-id": {
+          "type": "long"
+        },
+        "description": {
+          "type": "text"
+        },
+        "canvas-password-hash": {
+          "type": "keyword"
+        },
+        "people": {
+          "type": "long"
+        }
       }
-    }
-  }'
-  echo -e "\n[OK] 인덱스($INDEX_NAME) 매핑 동기화 완료"
-else
+    }'
+    echo -e "\n[OK] 인덱스($INDEX_NAME) 매핑 동기화 완료"
+  fi
+fi
+
+if [ "$INDEX_EXISTS" != "200" ]; then
   curl -s -f -u "$ES_SUPER_USER:$ES_SUPER_PASS" -X PUT "$ES_HOST/$INDEX_NAME" \
        -H 'Content-Type: application/json' \
        -d '{
@@ -116,9 +134,9 @@ else
         },
         {
           "item_permission": {
-            "path_match": "items.*.permission.*",
+            "path_match": "items.*.permission",
             "mapping": {
-              "type": "byte"
+              "type": "keyword"
             }
           }
         }
@@ -136,13 +154,16 @@ else
         "canvas-id": {
           "type": "long"
         },
-        "admin": {
+        "admin-user-id": {
           "type": "long"
         },
-        "canvas-password": {
+        "description": {
+          "type": "text"
+        },
+        "canvas-password-hash": {
           "type": "keyword"
         },
-        "peoples": {
+        "people": {
           "type": "long"
         },
         "inner-group": {

@@ -1,4 +1,6 @@
-# OS generated files
+# ==========================================
+# Operating System Files
+# ==========================================
 .DS_Store
 .DS_Store?
 ._*
@@ -6,30 +8,93 @@
 .Trashes
 ehthumbs.db
 Thumbs.db
+desktop.ini
 
-# IDE & Editor files
+# ==========================================
+# IDE & Editor Files
+# ==========================================
 .idea/
 .vscode/
 *.swp
 *.swo
 *~
+*.sublime-project
+*.sublime-workspace
+.settings/
+.project
 
-# Environment variables & secrets
+# ==========================================
+# Environment Variables & Secrets
+# ==========================================
 .env
+.env.*
 .env.local
 .env.*.local
+# Ensure example environment files are tracked
+!.env.example
+!**/.env.example
 *.pem
 *.key
+*.cert
+*.crt
 
-# Docker & Database local data / logs
+# ==========================================
+# Python (Bytecode, Caches & Environments)
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+
+# Pytest & Coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# ==========================================
+# Docker & Database Volumes, Backups, and Logs
+# ==========================================
 *.log
 volumes/
 data/
 docker-compose.override.yml
+*.dump
+*.bak
+*.sql.bak
 
-# Temporary files
+# ==========================================
+# Temporary & Scratch Files
+# ==========================================
 scratch/
 tmp/
+temp/
 *.tmp
-
+*.temp
 *.txt
+!requirements.txt
+!**/requirements.txt

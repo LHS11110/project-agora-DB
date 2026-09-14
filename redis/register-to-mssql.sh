@@ -119,7 +119,7 @@ fi
 
 # 7. 현재 등록된 Redis 서버 목록 출력
 echo -e "\n=== 현재 MS SQL [$MSSQL_TABLE] 에 등록된 Redis 서버 목록 ==="
-LIST_SQL="SELECT redis_id, redis_ip, redis_port, created_at FROM [$MSSQL_TABLE];"
+LIST_SQL="SELECT redis_id, redis_ip, redis_port, is_activated, created_at FROM [$MSSQL_TABLE];"
 run_mssql_cmd "$LIST_SQL"
 
 echo -e "\n[SUCCESS] Redis 외부 접속 정보의 MS SQL 등록 작업이 완료되었습니다.\n"

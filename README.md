@@ -102,7 +102,7 @@ docker compose ps
 
 ### (1) MS SQL 사용자 생성, 데이터베이스 소유권 부여 및 테이블 생성
 - 일반 사용자(`agora_user`)에게 `agora_db`의 `dbo` 소유권을 부여하여 불필요한 sa 권한 노출 없이 운영할 수 있도록 구성합니다.
-- 테이블명(`users`, `redis_server`, `canvas_info`, `python_server`)은 `.env`에서 변경할 수 있습니다.
+- 테이블명(`users`, `redis_server`, `canvas_info`, `cpp_server`)은 `.env`에서 변경할 수 있습니다.
 
 ```bash
 ./mssql/init-mssql.sh
@@ -114,7 +114,7 @@ docker exec -i agora-mssql /opt/mssql-tools18/bin/sqlcmd \
   -S localhost -U sa -P 'AgoraStrong@Passw0rd!2026' -C -I \
   -v DB_NAME='agora_db' -v DB_USER='agora_user' -v DB_PASSWORD='AgoraUserSecret@Passw0rd!2026' \
      TABLE_USERS='users' TABLE_REDIS_SERVER='redis_server' TABLE_CANVAS_INFO='canvas_info' \
-     TABLE_PYTHON_SERVER='python_server' \
+     TABLE_CPP_SERVER='cpp_server' TABLE_PYTHON_SERVER='cpp_server' \
   < mssql/init-mssql.sql
 ```
 
@@ -148,14 +148,18 @@ docker exec -i agora-mssql /opt/mssql-tools18/bin/sqlcmd \
 ### 1) MS SQL Server 스키마
 
 #### `users` (회원 테이블)
-- `user_id`: `INT IDENTITY(1,1)` (PK, 클러스터드 인덱스)
-- `email`: `NVARCHAR(255) NOT NULL` (UNIQUE 넌클러스터드 인덱스 `UQ_Users_Email`)
+- `user_id`: `INT IDENTITY(1,1)` (PK 자동 증가, 클러스터드 인덱스)
+- `email`: `NVARCHAR(255) NOT NULL UNIQUE` (넌클러스터드 인덱스 `UQ_Users_Email`)
+  - 이메일 인증을 통해 유저당 계정 소유 개수 제한
 - `password_hash`: `NVARCHAR(255) NULL`
-- `nickname`: `NVARCHAR(100) NOT NULL`
-- `role`: `NVARCHAR(50) NOT NULL DEFAULT 'ROLE_USER'`
+- `nickname`: `NVARCHAR(100) NOT NULL` (중복 가능)
+- `role`: `NVARCHAR(10) NOT NULL DEFAULT 'ROLE_USER'` (CHECK 제약 조건: `ROLE_USER`, `ROLE_ADMIN`)
 - `status`: `NVARCHAR(20) NOT NULL DEFAULT 'ACTIVE'` (CHECK 제약 조건: `ACTIVE`, `SUSPENDED`, `WITHDRAWN`)
 - `oauth_provider`: `NVARCHAR(50) NULL`
 - `oauth_id`: `NVARCHAR(255) NULL`
+- `is_accessed`: `BIT NOT NULL DEFAULT 0`
+- `server_ip`: `VARCHAR(45) NULL`
+- `server_port`: `VARCHAR(10) NULL`
 - `last_login_at`: `DATETIME2 NULL`
 - `password_changed_at`: `DATETIME2 NULL`
 - `created_at`: `DATETIME2 NOT NULL DEFAULT SYSDATETIME()`
@@ -168,25 +172,25 @@ docker exec -i agora-mssql /opt/mssql-tools18/bin/sqlcmd \
 - `redis_id`: `INT IDENTITY(1,1)` (PK)
 - `redis_ip`: `VARCHAR(45) NOT NULL`
 - `redis_port`: `VARCHAR(10) NOT NULL`
+- `is_activated`: `BIT NOT NULL DEFAULT 0`
 - `created_at`: `DATETIME2 NOT NULL DEFAULT SYSDATETIME()`
 
-#### `canvas_info` (캔버스 메타데이터 및 상태 관리)
-- `canvas_id`: `INT` (PK)
-- `canvas_name`: `NVARCHAR(255) NOT NULL` (공백 불가)
+#### `cpp_server` (C++ 실시간 서버 인스턴스 관리)
+- `server_id`: `INT IDENTITY(1,1)` (PK, 클러스터드 인덱스)
+- `server_ip`: `VARCHAR(45) NOT NULL`
+- `server_port`: `VARCHAR(10) NOT NULL`
+- `is_activated`: `BIT NOT NULL DEFAULT 0`
+- `created_at`: `DATETIME2 NOT NULL DEFAULT SYSDATETIME()`
+
+#### `canvas_info` (캔버스 서버 할당 및 상태 관리)
+- `canvas_id`: `INT` (PK, 클러스터드 인덱스)
 - `redis_ip`: `VARCHAR(45) NULL` (FK: `redis_server(redis_ip, redis_port)`)
 - `redis_port`: `VARCHAR(10) NULL` (FK: `redis_server(redis_ip, redis_port)`)
-- `server_ip`: `VARCHAR(45) NULL` (FK: `python_server(server_ip, server_port)`)
-- `server_port`: `VARCHAR(10) NULL` (FK: `python_server(server_ip, server_port)`)
-- `user_id`: `INT NOT NULL` (FK: `users(user_id)`, 캔버스 어드민 계정)
+- `server_ip`: `VARCHAR(45) NULL` (FK: `cpp_server(server_ip, server_port)`)
+- `server_port`: `VARCHAR(10) NULL` (FK: `cpp_server(server_ip, server_port)`)
 - `is_cached`: `BIT NOT NULL DEFAULT 0`
 - `created_at`: `DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()`
 - `updated_at`: `DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()`
-
-#### `python_server` (Python 실시간 서버 인스턴스 관리)
-- `server_id`: `INT IDENTITY(1,1)` (PK)
-- `server_ip`: `VARCHAR(45) NOT NULL`
-- `server_port`: `VARCHAR(10) NOT NULL`
-- `created_at`: `DATETIME2 NOT NULL DEFAULT SYSDATETIME()`
 
 ---
 
@@ -196,11 +200,12 @@ Redis는 `canvas:{canvas_id}` 키에 JSON 형식으로 저장하며, Elasticsear
 
 ```json
 {
-  "canvas-name": "Agora Shared Canvas",
   "canvas-id": 1001,
-  "admin": 1,
-  "canvas-password": null,
-  "peoples": [1, 2, 3, 4],
+  "canvas-name": "this is canvas",
+  "admin-user-id": 1,
+  "description": "this is description",
+  "canvas-password-hash": "123!@#",
+  "people": [1, 2, 3, 4],
   "inner-group": {
     "group-name1": [1, 2],
     "group-name2": [3, 4],
@@ -211,18 +216,23 @@ Redis는 `canvas:{canvas_id}` 키에 JSON 형식으로 저장하며, Elasticsear
     "item-1": {
       "item-id": 1,
       "type": 10,
-      "pos": [120.5, 340.0],
+      "pos": [120.5, 340.0, 1],
       "data1": "sample metadata",
-      "permission": {
-        "admin-group": 7,
-        "group-name1": 5,
-        "group-name2": 1
-      }
+      "permission": ["admin-group", "group-name1"]
     }
   },
   "init-group": "init-group-name"
 }
 ```
+
+- `canvas-id`: MS SQL에서 자동 생성 또는 관리하는 캔버스 고유 식별자 (Redis의 경우 키값 `canvas:{canvas_id}`로 사용)
+- `admin-user-id`: 캔버스를 소유한 이용자 아이디
+- `description`: 캔버스 설명 텍스트
+- `canvas-password-hash`: 비밀번호 해시 (공백인 경우 퍼블릭 캔버스)
+- `people`: 캔버스에 참여 중인 사용자 id 리스트 (`[1, 2, 3, 4]`)
+- `inner-group`: 키(문자열 그룹명) : 값(사용자 아이디 리스트)
+- `items`: 캔버스 내부 아이템 맵 (`pos`의 `[x, y, z]`에서 `z`는 깊이를 의미하는 정수값, `permission`은 허용 그룹명 리스트)
+- `init-group`: 기본 할당 그룹명
 
 ---
 
@@ -248,31 +258,32 @@ python3 tests/test_storages.py
 | 저장소 | 대상 계정 | 번호 | 검증 항목 | 상세 내용 |
 | :--- | :--- | :---: | :--- | :--- |
 | **MS SQL** | `agora_user` | 1 | 계정 인증 및 DB 소유권 | `agora_db`에 대한 `dbo` 소유권 확인 |
-| | | 2 | 테이블 생성 확인 | `users`, `redis_server`, `canvas_info`, `python_server` 존재 여부 |
-| | | 3 | 회원 [Create] | `users` 테이블 테스트 회원 INSERT |
+| | | 2 | 테이블 생성 확인 | `users`, `redis_server`, `canvas_info`, `cpp_server` 존재 여부 |
+| | | 3 | 회원 [Create] | `users` 테이블 테스트 회원 INSERT (`is_accessed`, `server_ip`, `server_port` 포함) |
 | | | 4 | 회원 [Read] | 회원 조회 및 `status = 'ACTIVE'` 확인 |
-| | | 5 | 회원 [Update] | 회원 `status`를 `SUSPENDED`로 수정 확인 |
+| | | 5 | 회원 [Update] | 회원 `status`를 `SUSPENDED`, `is_accessed`를 `0`으로 수정 확인 |
 | | | 6 | 회원 [Delete] | 테스트 회원 데이터 삭제 (클린업) |
-| | | 7 | 캔버스/Redis [Create] | `redis_server` 및 `canvas_info` (PK: 9999, `user_id` 연동) INSERT |
+| | | 7 | 캔버스/Redis [Create] | `redis_server` (`is_activated: 1`) 및 `canvas_info` (PK: 9999, Redis FK 연동) INSERT |
 | | | 8 | 캔버스 [Read] | `canvas_info` 조회 및 `is_cached = 0` 확인 |
 | | | 9 | 캔버스 [Update] | `canvas_info`의 `is_cached`를 `1`로 수정 확인 |
 | | | 10 | 캔버스/Redis [Delete] | 캔버스 정보 및 Redis 서버 테스트 데이터 삭제 (클린업) |
-| | | 11 | Python 서버 [Create] | `python_server` 테이블 테스트 서버 인스턴스 INSERT |
-| | | 12 | Python 서버 [Read] | Python 서버 포트(8000) 조회 확인 |
-| | | 13 | Python 서버 [Update] | Python 서버 포트(8000 -> 8080) 수정 확인 |
-| | | 14 | Python 서버 [Delete] | Python 서버 테스트 데이터 삭제 (클린업) |
+| | | 11 | C++ 실시간 서버 [Create] | `cpp_server` 테이블 테스트 서버 인스턴스 INSERT (`is_activated: 1`) |
+| | | 12 | C++ 실시간 서버 [Read] | C++ 실시간 서버 포트(8000) 조회 확인 |
+| | | 13 | C++ 실시간 서버 [Update] | C++ 실시간 서버 포트(8000 -> 8080) 수정 확인 |
+| | | 14 | C++ 실시간 서버 [Delete] | C++ 실시간 서버 테스트 데이터 삭제 (클린업) |
 | **Elasticsearch** | `agora_user` | 15 | 계정 인증 및 역할 | Basic 인증 및 `agora_user_role` 역할 매핑 확인 |
 | | | 16 | 인덱스 접근 권한 | `canvas` 인덱스 접근 및 클러스터 상태 확인 |
-| | | 17 | 도큐먼트 [Create] | `canvas` 인덱스에 캔버스 JSON 도큐먼트 색인 |
-| | | 18 | 도큐먼트 [Read] | Document ID 기반 단건 조회 확인 |
-| | | 19 | 검색 쿼리 [Search] | `match` 쿼리를 통한 전문 검색 동작 확인 |
-| | | 20 | 도큐먼트 [Update] | 도큐먼트 필드 갱신 및 버전 증가 확인 |
+| | | 17 | 도큐먼트 [Create] | `canvas` 인덱스에 신규 캔버스 JSON 도큐먼트 색인 |
+| | | 18 | 도큐먼트 [Read] | Document ID 기반 단건 조회 및 `admin-user-id` 확인 |
+| | | 19 | 검색 쿼리 [Search] | `description` 필드 전문 검색 동작 확인 |
+| | | 20 | 도큐먼트 [Update] | `canvas-password-hash` 공백 변경 (퍼블릭 캔버스) 및 버전 증가 확인 |
 | | | 21 | 도큐먼트 [Delete] | 테스트 도큐먼트 삭제 (클린업) |
 | **Redis Stack** | `agora_user` | 22 | ACL 인증 | `AUTH agora_user` 및 `PING -> PONG` 확인 |
 | | | 23 | RediSearch 인덱스 | `FT.INFO idx:canvas` 인덱스 메타데이터 확인 |
-| | | 24 | RedisJSON [Create] | `JSON.SET canvas:9999 $ <json>` 생성 확인 |
-| | | 25 | RedisJSON [Read] | `JSON.GET canvas:9999` 데이터 조회 확인 |
-| | | 26 | RediSearch [Search] | `FT.SEARCH idx:canvas` 전문 검색 쿼리 확인 |
-| | | 27 | RedisJSON [Update] | `JSON.SET canvas:9999 $.admin 2000` 필드 수정 확인 |
-| | | 28 | RedisJSON [Delete] | `DEL canvas:9999` 삭제 확인 (클린업) |
+| | | 24 | RedisJSON [Create] | `JSON.SET canvas:test-py $ <json>` 신규 캔버스 JSON 생성 확인 |
+| | | 25 | RedisJSON [Read] | `JSON.GET canvas:test-py` 데이터 조회 및 `admin-user-id` 확인 |
+| | | 26 | RediSearch [Search] | `FT.SEARCH idx:canvas @admin_user_id` 전문 검색 쿼리 확인 |
+| | | 27 | RedisJSON [Update] | `JSON.SET canvas:test-py $["admin-user-id"] 2000` 필드 수정 확인 |
+| | | 28 | RedisJSON [Delete] | `DEL canvas:test-py` 삭제 확인 (클린업) |
 | | | 29 | 보안 격리 [Scope] | 허용되지 않은 키(`other:unauthorized`) 쓰기 시 `NOPERM` 차단 확인 |
+

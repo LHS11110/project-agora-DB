@@ -14,12 +14,6 @@ import urllib.error
 import subprocess
 from pathlib import Path
 
-# 네이티브 데이터베이스 드라이버/클라이언트 라이브러리 로드 (미설치 시 docker exec fallback 사용)
-try:
-    import pymssql
-except ImportError:
-    pymssql = None
-
 try:
     import redis as redis_lib
 except ImportError:
@@ -62,7 +56,7 @@ MSSQL_PASS = mssql_env.get("MSSQL_PASSWORD", "AgoraUserSecret@Passw0rd!2026")
 MSSQL_TABLE_USERS = mssql_env.get("MSSQL_TABLE_USERS", "users")
 MSSQL_TABLE_REDIS_SERVER = mssql_env.get("MSSQL_TABLE_REDIS_SERVER", "redis_server")
 MSSQL_TABLE_CANVAS_INFO = mssql_env.get("MSSQL_TABLE_CANVAS_INFO", mssql_env.get("MSSQL_TABLE_CANVAS_CACHE", "canvas_info"))
-MSSQL_TABLE_PYTHON_SERVER = mssql_env.get("MSSQL_TABLE_PYTHON_SERVER", "python_server")
+MSSQL_TABLE_CPP_SERVER = mssql_env.get("MSSQL_TABLE_CPP_SERVER", mssql_env.get("MSSQL_TABLE_PYTHON_SERVER", "cpp_server"))
 
 # Elasticsearch 설정
 es_raw_ip = es_env.get("ES_EXTERNAL_IP", "127.0.0.1")
@@ -97,47 +91,21 @@ def record_test(name: str, passed: bool, detail: str = ""):
 # ==============================================================================
 def test_mssql():
     print(f"\n{YELLOW}[1/3] MS SQL Server CRUD 테스트 ({MSSQL_USER}@{MSSQL_HOST}:{MSSQL_PORT}/{MSSQL_DB}){RESET}")
-    print(f"  - 검증 테이블: {MSSQL_TABLE_USERS}, {MSSQL_TABLE_REDIS_SERVER}, {MSSQL_TABLE_CANVAS_INFO}, {MSSQL_TABLE_PYTHON_SERVER}")
-    if pymssql is not None:
-        print(f"  - 통신 모드: pymssql 네트워크 TCP 직접 연결 ({MSSQL_HOST}:{MSSQL_PORT})")
-    else:
-        print(f"  - 통신 모드: docker exec CLI fallback (pymssql 미설치)")
+    print(f"  - 검증 테이블: {MSSQL_TABLE_USERS}, {MSSQL_TABLE_REDIS_SERVER}, {MSSQL_TABLE_CANVAS_INFO}, {MSSQL_TABLE_CPP_SERVER}")
     
     def run_query(sql: str) -> str:
-        if pymssql is not None:
-            with pymssql.connect(
-                server=MSSQL_HOST,
-                port=int(MSSQL_PORT),
-                user=MSSQL_USER,
-                password=MSSQL_PASS,
-                database=MSSQL_DB,
-                autocommit=True
-            ) as conn:
-                with conn.cursor() as cursor:
-                    cursor.execute(sql)
-                    try:
-                        rows = cursor.fetchall()
-                        if rows and len(rows) > 0:
-                            val = rows[0][0]
-                            if isinstance(val, bool):
-                                return "1" if val else "0"
-                            return str(val)
-                        return ""
-                    except Exception:
-                        return ""
-        else:
-            cmd = [
-                "docker", "exec", "agora-mssql",
-                "/opt/mssql-tools18/bin/sqlcmd",
-                "-S", "localhost",
-                "-U", MSSQL_USER,
-                "-P", MSSQL_PASS,
-                "-C", "-I", "-d", MSSQL_DB,
-                "-W", "-h", "-1",
-                "-Q", f"SET NOCOUNT ON; {sql}"
-            ]
-            res = subprocess.run(cmd, capture_output=True, text=True, check=True)
-            return res.stdout.strip()
+        cmd = [
+            "docker", "exec", "agora-mssql",
+            "/opt/mssql-tools18/bin/sqlcmd",
+            "-S", "localhost",
+            "-U", MSSQL_USER,
+            "-P", MSSQL_PASS,
+            "-C", "-I", "-d", MSSQL_DB,
+            "-W", "-h", "-1",
+            "-Q", f"SET NOCOUNT ON; {sql}"
+        ]
+        res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        return res.stdout.strip()
 
     try:
         # (1-1) 인증 및 dbo 권한 검증
@@ -146,21 +114,21 @@ def test_mssql():
         record_test(f"사용자 인증 및 DB 소유권 확인 ({MSSQL_USER} -> dbo)", is_dbo, auth_info)
 
         # (1-2) 환경변수 테이블 존재 여부 확인 (4개 테이블)
-        tbl_cnt = run_query(f"SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME IN ('{MSSQL_TABLE_USERS}', '{MSSQL_TABLE_REDIS_SERVER}', '{MSSQL_TABLE_CANVAS_INFO}', '{MSSQL_TABLE_PYTHON_SERVER}');")
-        record_test(f"환경변수 지정 테이블({MSSQL_TABLE_USERS}, {MSSQL_TABLE_REDIS_SERVER}, {MSSQL_TABLE_CANVAS_INFO}, {MSSQL_TABLE_PYTHON_SERVER}) 생성 확인", tbl_cnt == "4", tbl_cnt)
+        tbl_cnt = run_query(f"SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME IN ('{MSSQL_TABLE_USERS}', '{MSSQL_TABLE_REDIS_SERVER}', '{MSSQL_TABLE_CANVAS_INFO}', '{MSSQL_TABLE_CPP_SERVER}');")
+        record_test(f"환경변수 지정 테이블({MSSQL_TABLE_USERS}, {MSSQL_TABLE_REDIS_SERVER}, {MSSQL_TABLE_CANVAS_INFO}, {MSSQL_TABLE_CPP_SERVER}) 생성 확인", tbl_cnt == "4", tbl_cnt)
 
-        # (1-3) 회원 테이블(users) CRUD
+        # (1-3) 회원 테이블(users) CRUD (is_accessed, server_ip, server_port 포함)
         test_email = "test_py_user@agora.com"
-        run_query(f"INSERT INTO [{MSSQL_TABLE_USERS}] (email, nickname, role, status) VALUES ('{test_email}', N'PyTester', 'ROLE_USER', 'ACTIVE');")
+        run_query(f"INSERT INTO [{MSSQL_TABLE_USERS}] (email, nickname, role, status, is_accessed, server_ip, server_port) VALUES ('{test_email}', N'PyTester', 'ROLE_USER', 'ACTIVE', 1, '127.0.0.1', '8000');")
         u_ins = run_query(f"SELECT COUNT(*) FROM [{MSSQL_TABLE_USERS}] WHERE email = '{test_email}';")
-        record_test(f"회원 테이블({MSSQL_TABLE_USERS}) 데이터 삽입 [Create] 성공", u_ins == "1", u_ins)
+        record_test(f"회원 테이블({MSSQL_TABLE_USERS}) 데이터 삽입 [Create] 성공 (is_accessed, server_ip, server_port 포함)", u_ins == "1", u_ins)
 
         u_read = run_query(f"SELECT status FROM [{MSSQL_TABLE_USERS}] WHERE email = '{test_email}';")
         record_test(f"회원 테이블({MSSQL_TABLE_USERS}) 데이터 조회 [Read] 성공 (status: ACTIVE)", u_read == "ACTIVE", u_read)
 
-        run_query(f"UPDATE [{MSSQL_TABLE_USERS}] SET status = 'SUSPENDED' WHERE email = '{test_email}';")
+        run_query(f"UPDATE [{MSSQL_TABLE_USERS}] SET status = 'SUSPENDED', is_accessed = 0 WHERE email = '{test_email}';")
         u_upd = run_query(f"SELECT status FROM [{MSSQL_TABLE_USERS}] WHERE email = '{test_email}';")
-        record_test(f"회원 테이블({MSSQL_TABLE_USERS}) 데이터 수정 [Update] 성공 (ACTIVE -> SUSPENDED)", u_upd == "SUSPENDED", u_upd)
+        record_test(f"회원 테이블({MSSQL_TABLE_USERS}) 데이터 수정 [Update] 성공 (ACTIVE -> SUSPENDED, is_accessed: 0)", u_upd == "SUSPENDED", u_upd)
 
         run_query(f"DELETE FROM [{MSSQL_TABLE_USERS}] WHERE email = '{test_email}';")
         u_del = run_query(f"SELECT COUNT(*) FROM [{MSSQL_TABLE_USERS}] WHERE email = '{test_email}';")
@@ -169,12 +137,10 @@ def test_mssql():
         # (1-4) 캔버스 정보 및 Redis 서버 테이블 CRUD
         test_cache_redis_ip = "127.0.0.99"
         test_cache_redis_port = "6399"
-        run_query(f"INSERT INTO [{MSSQL_TABLE_USERS}] (email, nickname, role, status) VALUES ('canvas_py_owner@agora.com', N'CanvasPyOwner', 'ROLE_USER', 'ACTIVE');")
-        owner_uid = run_query(f"SELECT user_id FROM [{MSSQL_TABLE_USERS}] WHERE email = 'canvas_py_owner@agora.com';")
-        run_query(f"INSERT INTO [{MSSQL_TABLE_REDIS_SERVER}] (redis_ip, redis_port) VALUES ('{test_cache_redis_ip}', '{test_cache_redis_port}');")
-        run_query(f"INSERT INTO [{MSSQL_TABLE_CANVAS_INFO}] (canvas_id, canvas_name, redis_ip, redis_port, user_id, is_cached) VALUES (8888, N'test-py-canvas', '{test_cache_redis_ip}', '{test_cache_redis_port}', {owner_uid}, 0);")
+        run_query(f"INSERT INTO [{MSSQL_TABLE_REDIS_SERVER}] (redis_ip, redis_port, is_activated) VALUES ('{test_cache_redis_ip}', '{test_cache_redis_port}', 1);")
+        run_query(f"INSERT INTO [{MSSQL_TABLE_CANVAS_INFO}] (canvas_id, redis_ip, redis_port, is_cached) VALUES (8888, '{test_cache_redis_ip}', '{test_cache_redis_port}', 0);")
         ins_cnt = run_query(f"SELECT COUNT(*) FROM [{MSSQL_TABLE_CANVAS_INFO}] WHERE canvas_id = 8888;")
-        record_test(f"캔버스 정보 테이블({MSSQL_TABLE_CANVAS_INFO}) 데이터 삽입 [Create] 성공 (canvas_id: 8888, user_id FK 연동)", ins_cnt == "1", ins_cnt)
+        record_test(f"캔버스 정보 테이블({MSSQL_TABLE_CANVAS_INFO}) 데이터 삽입 [Create] 성공 (canvas_id: 8888, Redis FK 연동)", ins_cnt == "1", ins_cnt)
 
         # (1-5) 데이터 조회 [Read]
         read_val = run_query(f"SELECT is_cached FROM [{MSSQL_TABLE_CANVAS_INFO}] WHERE canvas_id = 8888;")
@@ -187,31 +153,30 @@ def test_mssql():
 
         # (1-7) 데이터 삭제 [Delete] (클린업)
         run_query(f"DELETE FROM [{MSSQL_TABLE_CANVAS_INFO}] WHERE canvas_id = 8888;")
-        run_query(f"DELETE FROM [{MSSQL_TABLE_USERS}] WHERE email = 'canvas_py_owner@agora.com';")
         run_query(f"DELETE FROM [{MSSQL_TABLE_REDIS_SERVER}] WHERE redis_ip = '{test_cache_redis_ip}' AND redis_port = '{test_cache_redis_port}';")
         del_cnt = run_query(f"SELECT COUNT(*) FROM [{MSSQL_TABLE_CANVAS_INFO}] WHERE canvas_id = 8888;")
         record_test(f"캔버스 정보 테이블({MSSQL_TABLE_CANVAS_INFO}, {MSSQL_TABLE_REDIS_SERVER}) 데이터 삭제 [Delete] 성공 (클린업 완료)", del_cnt == "0", del_cnt)
 
-        # (1-8) Python 서버 테이블 CRUD
-        test_py_ip = "127.0.0.1"
-        test_py_port = "8000"
-        run_query(f"INSERT INTO [{MSSQL_TABLE_PYTHON_SERVER}] (server_ip, server_port) VALUES ('{test_py_ip}', '{test_py_port}');")
-        py_ins = run_query(f"SELECT COUNT(*) FROM [{MSSQL_TABLE_PYTHON_SERVER}] WHERE server_ip = '{test_py_ip}' AND server_port = '{test_py_port}';")
-        record_test(f"Python 서버 테이블({MSSQL_TABLE_PYTHON_SERVER}) 데이터 삽입 [Create] 성공 ({test_py_ip}:{test_py_port})", py_ins == "1", py_ins)
+        # (1-8) C++ 실시간 서버 테이블 CRUD (is_activated 포함)
+        test_cpp_ip = "127.0.0.1"
+        test_cpp_port = "8000"
+        run_query(f"INSERT INTO [{MSSQL_TABLE_CPP_SERVER}] (server_ip, server_port, is_activated) VALUES ('{test_cpp_ip}', '{test_cpp_port}', 1);")
+        cpp_ins = run_query(f"SELECT COUNT(*) FROM [{MSSQL_TABLE_CPP_SERVER}] WHERE server_ip = '{test_cpp_ip}' AND server_port = '{test_cpp_port}';")
+        record_test(f"C++ 실시간 서버 테이블({MSSQL_TABLE_CPP_SERVER}) 데이터 삽입 [Create] 성공 ({test_cpp_ip}:{test_cpp_port}, is_activated: 1)", cpp_ins == "1", cpp_ins)
 
-        # (1-9) Python 서버 테이블 조회 [Read]
-        py_read = run_query(f"SELECT server_port FROM [{MSSQL_TABLE_PYTHON_SERVER}] WHERE server_ip = '{test_py_ip}';")
-        record_test(f"Python 서버 테이블({MSSQL_TABLE_PYTHON_SERVER}) 데이터 조회 [Read] 성공 (port: 8000)", py_read == "8000", py_read)
+        # (1-9) C++ 실시간 서버 테이블 조회 [Read]
+        cpp_read = run_query(f"SELECT server_port FROM [{MSSQL_TABLE_CPP_SERVER}] WHERE server_ip = '{test_cpp_ip}';")
+        record_test(f"C++ 실시간 서버 테이블({MSSQL_TABLE_CPP_SERVER}) 데이터 조회 [Read] 성공 (port: 8000)", cpp_read == "8000", cpp_read)
 
-        # (1-10) Python 서버 테이블 수정 [Update]
-        run_query(f"UPDATE [{MSSQL_TABLE_PYTHON_SERVER}] SET server_port = '8080' WHERE server_ip = '{test_py_ip}';")
-        py_upd = run_query(f"SELECT server_port FROM [{MSSQL_TABLE_PYTHON_SERVER}] WHERE server_ip = '{test_py_ip}';")
-        record_test(f"Python 서버 테이블({MSSQL_TABLE_PYTHON_SERVER}) 데이터 수정 [Update] 성공 (8000 -> 8080)", py_upd == "8080", py_upd)
+        # (1-10) C++ 실시간 서버 테이블 수정 [Update]
+        run_query(f"UPDATE [{MSSQL_TABLE_CPP_SERVER}] SET server_port = '8080', is_activated = 0 WHERE server_ip = '{test_cpp_ip}';")
+        cpp_upd = run_query(f"SELECT server_port FROM [{MSSQL_TABLE_CPP_SERVER}] WHERE server_ip = '{test_cpp_ip}';")
+        record_test(f"C++ 실시간 서버 테이블({MSSQL_TABLE_CPP_SERVER}) 데이터 수정 [Update] 성공 (8000 -> 8080)", cpp_upd == "8080", cpp_upd)
 
-        # (1-11) Python 서버 테이블 삭제 [Delete] (클린업)
-        run_query(f"DELETE FROM [{MSSQL_TABLE_PYTHON_SERVER}] WHERE server_ip = '{test_py_ip}';")
-        py_del = run_query(f"SELECT COUNT(*) FROM [{MSSQL_TABLE_PYTHON_SERVER}] WHERE server_ip = '{test_py_ip}';")
-        record_test(f"Python 서버 테이블({MSSQL_TABLE_PYTHON_SERVER}) 데이터 삭제 [Delete] 성공 (클린업 완료)", py_del == "0", py_del)
+        # (1-11) C++ 실시간 서버 테이블 삭제 [Delete] (클린업)
+        run_query(f"DELETE FROM [{MSSQL_TABLE_CPP_SERVER}] WHERE server_ip = '{test_cpp_ip}';")
+        cpp_del = run_query(f"SELECT COUNT(*) FROM [{MSSQL_TABLE_CPP_SERVER}] WHERE server_ip = '{test_cpp_ip}';")
+        record_test(f"C++ 실시간 서버 테이블({MSSQL_TABLE_CPP_SERVER}) 데이터 삭제 [Delete] 성공 (클린업 완료)", cpp_del == "0", cpp_del)
     except Exception as e:
         record_test("MS SQL 쿼리 실행 실패", False, str(e))
 
@@ -248,16 +213,37 @@ def test_elasticsearch():
 
     doc_id = "test-py-doc"
 
-    # (2-3) 도큐먼트 삽입 [Create] (canvas-password 포함)
+    # (2-3) 도큐먼트 삽입 [Create] (신규 캔버스 JSON 명세 구조)
     try:
-        payload = json.dumps({"canvas-name": "Agora Test Canvas", "canvas-id": 7777, "admin": 100, "canvas-password": "hash_secret_example"}).encode()
+        payload = json.dumps({
+            "canvas-id": 7777,
+            "canvas-name": "Agora Test Canvas",
+            "admin-user-id": 100,
+            "description": "this is test description",
+            "canvas-password-hash": "hash_secret_example",
+            "people": [1, 2, 3, 4],
+            "inner-group": {
+                "group-name1": [1, 2],
+                "group-name2": [3, 4]
+            },
+            "items": {
+                "item-1": {
+                    "item-id": 1,
+                    "type": 10,
+                    "pos": [120.5, 340.0, 1],
+                    "data1": "sample metadata",
+                    "permission": ["admin-group", "group-name1"]
+                }
+            },
+            "init-group": "group-name1"
+        }).encode()
         req = urllib.request.Request(f"{ES_HOST}/{ES_INDEX}/_doc/{doc_id}?refresh=true", data=payload, method="PUT")
         req.add_header("Authorization", auth_header)
         req.add_header("Content-Type", "application/json")
         with urllib.request.urlopen(req) as resp:
             data = json.loads(resp.read().decode())
             res = data.get("result", "")
-            record_test(f"인덱스({ES_INDEX}) 도큐먼트 삽입 [Create] 성공 (result: {res}, canvas-password 포함)", res in ("created", "updated"))
+            record_test(f"인덱스({ES_INDEX}) 도큐먼트 삽입 [Create] 성공 (result: {res}, 신규 캔버스 JSON 명세 구조)", res in ("created", "updated"))
     except Exception as e:
         record_test(f"인덱스({ES_INDEX}) 도큐먼트 삽입 실패", False, str(e))
 
@@ -268,13 +254,14 @@ def test_elasticsearch():
         with urllib.request.urlopen(req) as resp:
             data = json.loads(resp.read().decode())
             found = data.get("found", False)
-            record_test(f"인덱스({ES_INDEX}) 도큐먼트 단건 조회 [Read] 성공", found)
+            admin_uid = data.get("_source", {}).get("admin-user-id")
+            record_test(f"인덱스({ES_INDEX}) 도큐먼트 단건 조회 [Read] 성공 (admin-user-id: {admin_uid})", found and admin_uid == 100)
     except Exception as e:
         record_test(f"인덱스({ES_INDEX}) 도큐먼트 단건 조회 실패", False, str(e))
 
     # (2-5) 검색 쿼리 (_search) [Search]
     try:
-        query_payload = json.dumps({"query": {"match": {"canvas-name": "Agora"}}}).encode()
+        query_payload = json.dumps({"query": {"match": {"description": "description"}}}).encode()
         req = urllib.request.Request(f"{ES_HOST}/{ES_INDEX}/_search", data=query_payload, method="POST")
         req.add_header("Authorization", auth_header)
         req.add_header("Content-Type", "application/json")
@@ -285,9 +272,9 @@ def test_elasticsearch():
     except Exception as e:
         record_test(f"인덱스({ES_INDEX}) match 검색 조회 실패", False, str(e))
 
-    # (2-6) 도큐먼트 수정 [Update] (canvas-password를 None(null)으로 갱신하여 none 허용 검증)
+    # (2-6) 도큐먼트 수정 [Update] (canvas-password-hash를 공백으로 변경하여 퍼블릭 캔버스 검증)
     try:
-        update_payload = json.dumps({"doc": {"canvas-name": "Agora Test Canvas Updated", "canvas-password": None}}).encode()
+        update_payload = json.dumps({"doc": {"canvas-name": "Agora Test Canvas Updated", "canvas-password-hash": ""}}).encode()
         req = urllib.request.Request(f"{ES_HOST}/{ES_INDEX}/_update/{doc_id}", data=update_payload, method="POST")
         req.add_header("Authorization", auth_header)
         req.add_header("Content-Type", "application/json")
@@ -362,22 +349,41 @@ def test_redis():
         info_res = run_redis_cmd("FT.INFO", REDIS_INDEX_NAME)
         record_test(f"RediSearch 인덱스({REDIS_INDEX_NAME}) 정보 조회", REDIS_INDEX_NAME in info_res, info_res)
 
-        # (3-3) RedisJSON 데이터 삽입 [Create] (canvas-password 포함)
-        insert_res = run_redis_cmd("JSON.SET", test_key, "$", '{"canvas-name":"PyTest","canvas-id":555,"admin":1000,"canvas-password":"hash_secret_example"}')
-        record_test(f"RedisJSON 데이터 삽입 [Create] ({test_key}, canvas-password 포함)", "OK" in insert_res, insert_res)
+        # (3-3) RedisJSON 데이터 삽입 [Create] (신규 캔버스 JSON 명세 구조)
+        test_payload = json.dumps({
+            "canvas-id": 555,
+            "canvas-name": "PyTest",
+            "admin-user-id": 1000,
+            "description": "this is test description",
+            "canvas-password-hash": "hash_secret_example",
+            "people": [1, 2, 3, 4],
+            "inner-group": {"g1": [1, 2]},
+            "items": {
+                "item-1": {
+                    "item-id": 1,
+                    "type": 10,
+                    "pos": [120.5, 340.0, 1],
+                    "data1": "sample metadata",
+                    "permission": ["admin-group", "g1"]
+                }
+            },
+            "init-group": "g1"
+        })
+        insert_res = run_redis_cmd("JSON.SET", test_key, "$", test_payload)
+        record_test(f"RedisJSON 데이터 삽입 [Create] ({test_key}, 신규 캔버스 JSON 명세 구조)", "OK" in insert_res, insert_res)
 
         # (3-4) RedisJSON 데이터 조회 [Read]
         json_res = run_redis_cmd("JSON.GET", test_key)
-        record_test(f"RedisJSON 데이터 조회 [Read] ({test_key})", "PyTest" in json_res, json_res)
+        record_test(f"RedisJSON 데이터 조회 [Read] ({test_key})", "PyTest" in json_res and "admin-user-id" in json_res, json_res)
 
         # (3-5) RediSearch 검색 쿼리 [Search]
-        search_res = run_redis_cmd("FT.SEARCH", REDIS_INDEX_NAME, "@admin:[1000 1000]")
-        record_test(f"RediSearch 검색 쿼리 [Search] (FT.SEARCH {REDIS_INDEX_NAME})", test_key in search_res, search_res)
+        search_res = run_redis_cmd("FT.SEARCH", REDIS_INDEX_NAME, "@admin_user_id:[1000 1000]")
+        record_test(f"RediSearch 검색 쿼리 [Search] (FT.SEARCH {REDIS_INDEX_NAME} @admin_user_id)", test_key in search_res, search_res)
 
-        # (3-6) RedisJSON 데이터 수정 [Update] (admin 변경 및 canvas-password null 갱신 허용 확인)
-        update_res = run_redis_cmd("JSON.SET", test_key, "$.admin", "2000")
-        run_redis_cmd("JSON.SET", test_key, '$["canvas-password"]', "null")
-        record_test(f"RedisJSON 데이터 수정 [Update] ({test_key} $.admin 2000, canvas-password: null)", "OK" in update_res, update_res)
+        # (3-6) RedisJSON 데이터 수정 [Update] (admin-user-id 및 canvas-password-hash 수정)
+        update_res = run_redis_cmd("JSON.SET", test_key, '$["admin-user-id"]', "2000")
+        run_redis_cmd("JSON.SET", test_key, '$["canvas-password-hash"]', '""')
+        record_test(f"RedisJSON 데이터 수정 [Update] ({test_key} admin-user-id 2000, hash: 공백)", "OK" in update_res, update_res)
 
         # (3-7) RedisJSON 데이터 삭제 [Delete]
         del_res = run_redis_cmd("DEL", test_key)
