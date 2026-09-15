@@ -263,8 +263,8 @@ python3 tests/test_storages.py
 | | | 9 | 캔버스 [Update] | `canvas_info`의 `is_cached`를 `1`로 수정 확인 |
 | | | 10 | 캔버스/Redis [Delete] | 캔버스 정보 및 Redis 서버 테스트 데이터 삭제 (클린업) |
 | | | 11 | C++ 실시간 서버 [Create] | `cpp_server` 테이블 테스트 서버 인스턴스 INSERT (`is_activated: 1`) |
-| | | 12 | C++ 실시간 서버 [Read] | C++ 실시간 서버 포트(8000) 조회 확인 |
-| | | 13 | C++ 실시간 서버 [Update] | C++ 실시간 서버 포트(8000 -> 8080) 수정 확인 |
+| | | 12 | C++ 실시간 서버 [Read] | C++ 실시간 서버 포트(7077) 조회 확인 |
+| | | 13 | C++ 실시간 서버 [Update] | C++ 실시간 서버 포트(7077 -> 8080) 수정 확인 |
 | | | 14 | C++ 실시간 서버 [Delete] | C++ 실시간 서버 테스트 데이터 삭제 (클린업) |
 | **Elasticsearch** | `agora_user` | 15 | 계정 인증 및 역할 | Basic 인증 및 `agora_user_role` 역할 매핑 확인 |
 | | | 16 | 인덱스 접근 권한 | `canvas` 인덱스 접근 및 클러스터 상태 확인 |

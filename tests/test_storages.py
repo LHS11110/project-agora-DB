@@ -119,10 +119,11 @@ def test_mssql():
 
         # (1-3) 회원 테이블(users) CRUD (is_accessed, cpp_server_id FK 포함)
         # 먼저 C++ 서버를 등록하고, 해당 server_id를 users에 FK로 연결
-        test_email = "test_py_user@agora.com"
+        test_email = "test_crud_user@agora.com"
         test_user_cpp_ip = "127.0.0.88"
         test_user_cpp_port = "7000"
-        run_query(f"INSERT INTO [{MSSQL_TABLE_CPP_SERVER}] (server_ip, server_port, is_activated) VALUES ('{test_user_cpp_ip}', '{test_user_cpp_port}', 1);")
+        test_user_cpp_ws_port = "7001"
+        run_query(f"INSERT INTO [{MSSQL_TABLE_CPP_SERVER}] (server_ip, server_port, ws_port, is_activated) VALUES ('{test_user_cpp_ip}', '{test_user_cpp_port}', '{test_user_cpp_ws_port}', 1);")
         run_query(f"INSERT INTO [{MSSQL_TABLE_USERS}] (email, password_hash, nickname, role, status) VALUES ('{test_email}', 'dummy_hash', N'PyTester', 'ROLE_USER', 'ACTIVE');")
         run_query(f"INSERT INTO [user_sessions] (user_id, is_accessed, cpp_server_id) VALUES ((SELECT user_id FROM [{MSSQL_TABLE_USERS}] WHERE email = '{test_email}'), 1, (SELECT server_id FROM [{MSSQL_TABLE_CPP_SERVER}] WHERE server_ip = '{test_user_cpp_ip}' AND server_port = '{test_user_cpp_port}'));")
         u_ins = run_query(f"SELECT COUNT(*) FROM [{MSSQL_TABLE_USERS}] WHERE email = '{test_email}';")
@@ -165,15 +166,16 @@ def test_mssql():
         record_test(f"캔버스 정보 테이블({MSSQL_TABLE_CANVAS_INFO}, {MSSQL_TABLE_REDIS_SERVER}) 데이터 삭제 [Delete] 성공 (클린업 완료)", del_cnt == "0", del_cnt)
 
         # (1-8) C++ 실시간 서버 테이블 CRUD (is_activated 포함)
-        test_cpp_ip = "127.0.0.1"
-        test_cpp_port = "8000"
-        run_query(f"INSERT INTO [{MSSQL_TABLE_CPP_SERVER}] (server_ip, server_port, is_activated) VALUES ('{test_cpp_ip}', '{test_cpp_port}', 1);")
+        test_cpp_ip = "127.0.0.77"
+        test_cpp_port = "7077"
+        test_cpp_ws_port = "7078"
+        run_query(f"INSERT INTO [{MSSQL_TABLE_CPP_SERVER}] (server_ip, server_port, ws_port, is_activated) VALUES ('{test_cpp_ip}', '{test_cpp_port}', '{test_cpp_ws_port}', 1);")
         cpp_ins = run_query(f"SELECT COUNT(*) FROM [{MSSQL_TABLE_CPP_SERVER}] WHERE server_ip = '{test_cpp_ip}' AND server_port = '{test_cpp_port}';")
         record_test(f"C++ 실시간 서버 테이블({MSSQL_TABLE_CPP_SERVER}) 데이터 삽입 [Create] 성공 ({test_cpp_ip}:{test_cpp_port}, is_activated: 1)", cpp_ins == "1", cpp_ins)
 
         # (1-9) C++ 실시간 서버 테이블 조회 [Read]
         cpp_read = run_query(f"SELECT server_port FROM [{MSSQL_TABLE_CPP_SERVER}] WHERE server_ip = '{test_cpp_ip}';")
-        record_test(f"C++ 실시간 서버 테이블({MSSQL_TABLE_CPP_SERVER}) 데이터 조회 [Read] 성공 (port: 8000)", cpp_read == "8000", cpp_read)
+        record_test(f"C++ 실시간 서버 테이블({MSSQL_TABLE_CPP_SERVER}) 데이터 조회 [Read] 성공 (port: 7077)", cpp_read == "7077", cpp_read)
 
         # (1-10) C++ 실시간 서버 테이블 수정 [Update]
         run_query(f"UPDATE [{MSSQL_TABLE_CPP_SERVER}] SET server_port = '8080', is_activated = 0 WHERE server_ip = '{test_cpp_ip}';")
