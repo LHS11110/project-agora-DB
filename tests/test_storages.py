@@ -117,11 +117,15 @@ def test_mssql():
         tbl_cnt = run_query(f"SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME IN ('{MSSQL_TABLE_USERS}', '{MSSQL_TABLE_REDIS_SERVER}', '{MSSQL_TABLE_CANVAS_INFO}', '{MSSQL_TABLE_CPP_SERVER}');")
         record_test(f"환경변수 지정 테이블({MSSQL_TABLE_USERS}, {MSSQL_TABLE_REDIS_SERVER}, {MSSQL_TABLE_CANVAS_INFO}, {MSSQL_TABLE_CPP_SERVER}) 생성 확인", tbl_cnt == "4", tbl_cnt)
 
-        # (1-3) 회원 테이블(users) CRUD (is_accessed, server_ip, server_port 포함)
+        # (1-3) 회원 테이블(users) CRUD (is_accessed, cpp_server_id FK 포함)
+        # 먼저 C++ 서버를 등록하고, 해당 server_id를 users에 FK로 연결
         test_email = "test_py_user@agora.com"
-        run_query(f"INSERT INTO [{MSSQL_TABLE_USERS}] (email, nickname, role, status, is_accessed, server_ip, server_port) VALUES ('{test_email}', N'PyTester', 'ROLE_USER', 'ACTIVE', 1, '127.0.0.1', '8000');")
+        test_user_cpp_ip = "127.0.0.88"
+        test_user_cpp_port = "7000"
+        run_query(f"INSERT INTO [{MSSQL_TABLE_CPP_SERVER}] (server_ip, server_port, is_activated) VALUES ('{test_user_cpp_ip}', '{test_user_cpp_port}', 1);")
+        run_query(f"INSERT INTO [{MSSQL_TABLE_USERS}] (email, nickname, role, status, is_accessed, cpp_server_id) VALUES ('{test_email}', N'PyTester', 'ROLE_USER', 'ACTIVE', 1, (SELECT server_id FROM [{MSSQL_TABLE_CPP_SERVER}] WHERE server_ip = '{test_user_cpp_ip}' AND server_port = '{test_user_cpp_port}'));")
         u_ins = run_query(f"SELECT COUNT(*) FROM [{MSSQL_TABLE_USERS}] WHERE email = '{test_email}';")
-        record_test(f"회원 테이블({MSSQL_TABLE_USERS}) 데이터 삽입 [Create] 성공 (is_accessed, server_ip, server_port 포함)", u_ins == "1", u_ins)
+        record_test(f"회원 테이블({MSSQL_TABLE_USERS}) 데이터 삽입 [Create] 성공 (is_accessed, cpp_server_id FK 포함)", u_ins == "1", u_ins)
 
         u_read = run_query(f"SELECT status FROM [{MSSQL_TABLE_USERS}] WHERE email = '{test_email}';")
         record_test(f"회원 테이블({MSSQL_TABLE_USERS}) 데이터 조회 [Read] 성공 (status: ACTIVE)", u_read == "ACTIVE", u_read)
@@ -131,14 +135,15 @@ def test_mssql():
         record_test(f"회원 테이블({MSSQL_TABLE_USERS}) 데이터 수정 [Update] 성공 (ACTIVE -> SUSPENDED, is_accessed: 0)", u_upd == "SUSPENDED", u_upd)
 
         run_query(f"DELETE FROM [{MSSQL_TABLE_USERS}] WHERE email = '{test_email}';")
+        run_query(f"DELETE FROM [{MSSQL_TABLE_CPP_SERVER}] WHERE server_ip = '{test_user_cpp_ip}' AND server_port = '{test_user_cpp_port}';")
         u_del = run_query(f"SELECT COUNT(*) FROM [{MSSQL_TABLE_USERS}] WHERE email = '{test_email}';")
         record_test(f"회원 테이블({MSSQL_TABLE_USERS}) 데이터 삭제 [Delete] 성공 (클린업 완료)", u_del == "0", u_del)
 
-        # (1-4) 캔버스 정보 및 Redis 서버 테이블 CRUD
+        # (1-4) 캔버스 정보 및 Redis 서버 테이블 CRUD (대리키 FK 연동)
         test_cache_redis_ip = "127.0.0.99"
         test_cache_redis_port = "6399"
         run_query(f"INSERT INTO [{MSSQL_TABLE_REDIS_SERVER}] (redis_ip, redis_port, is_activated) VALUES ('{test_cache_redis_ip}', '{test_cache_redis_port}', 1);")
-        run_query(f"INSERT INTO [{MSSQL_TABLE_CANVAS_INFO}] (canvas_id, redis_ip, redis_port, is_cached) VALUES (8888, '{test_cache_redis_ip}', '{test_cache_redis_port}', 0);")
+        run_query(f"INSERT INTO [{MSSQL_TABLE_CANVAS_INFO}] (canvas_id, redis_id, is_cached) VALUES (8888, (SELECT redis_id FROM [{MSSQL_TABLE_REDIS_SERVER}] WHERE redis_ip = '{test_cache_redis_ip}' AND redis_port = '{test_cache_redis_port}'), 0);")
         ins_cnt = run_query(f"SELECT COUNT(*) FROM [{MSSQL_TABLE_CANVAS_INFO}] WHERE canvas_id = 8888;")
         record_test(f"캔버스 정보 테이블({MSSQL_TABLE_CANVAS_INFO}) 데이터 삽입 [Create] 성공 (canvas_id: 8888, Redis FK 연동)", ins_cnt == "1", ins_cnt)
 

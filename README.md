@@ -158,12 +158,11 @@ docker exec -i agora-mssql /opt/mssql-tools18/bin/sqlcmd \
 - `oauth_provider`: `NVARCHAR(50) NULL`
 - `oauth_id`: `NVARCHAR(255) NULL`
 - `is_accessed`: `BIT NOT NULL DEFAULT 0`
-- `server_ip`: `VARCHAR(45) NULL`
-- `server_port`: `VARCHAR(10) NULL`
+- `cpp_server_id`: `INT NULL` (현재 접속 C++ 실시간 서버, FK: `cpp_server(server_id)`)
 - `last_login_at`: `DATETIME2 NULL`
 - `password_changed_at`: `DATETIME2 NULL`
-- `created_at`: `DATETIME2 NOT NULL DEFAULT SYSDATETIME()`
-- `updated_at`: `DATETIME2 NOT NULL DEFAULT SYSDATETIME()`
+- `created_at`: `DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()`
+- `updated_at`: `DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()`
 - **인덱스**:
   - `IX_Users_OAuth` : `(oauth_provider, oauth_id)` (조건부 필터 인덱스: `WHERE oauth_provider IS NOT NULL`)
   - `IX_Users_Nickname` : `(nickname)` (넌클러스터드 인덱스)
@@ -173,21 +172,19 @@ docker exec -i agora-mssql /opt/mssql-tools18/bin/sqlcmd \
 - `redis_ip`: `VARCHAR(45) NOT NULL`
 - `redis_port`: `VARCHAR(10) NOT NULL`
 - `is_activated`: `BIT NOT NULL DEFAULT 0`
-- `created_at`: `DATETIME2 NOT NULL DEFAULT SYSDATETIME()`
+- `created_at`: `DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()`
 
 #### `cpp_server` (C++ 실시간 서버 인스턴스 관리)
 - `server_id`: `INT IDENTITY(1,1)` (PK, 클러스터드 인덱스)
 - `server_ip`: `VARCHAR(45) NOT NULL`
 - `server_port`: `VARCHAR(10) NOT NULL`
 - `is_activated`: `BIT NOT NULL DEFAULT 0`
-- `created_at`: `DATETIME2 NOT NULL DEFAULT SYSDATETIME()`
+- `created_at`: `DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()`
 
 #### `canvas_info` (캔버스 서버 할당 및 상태 관리)
 - `canvas_id`: `INT` (PK, 클러스터드 인덱스)
-- `redis_ip`: `VARCHAR(45) NULL` (FK: `redis_server(redis_ip, redis_port)`)
-- `redis_port`: `VARCHAR(10) NULL` (FK: `redis_server(redis_ip, redis_port)`)
-- `server_ip`: `VARCHAR(45) NULL` (FK: `cpp_server(server_ip, server_port)`)
-- `server_port`: `VARCHAR(10) NULL` (FK: `cpp_server(server_ip, server_port)`)
+- `redis_id`: `INT NULL` (할당된 Redis 서버, FK: `redis_server(redis_id)`)
+- `server_id`: `INT NULL` (할당된 C++ 실시간 서버, FK: `cpp_server(server_id)`)
 - `is_cached`: `BIT NOT NULL DEFAULT 0`
 - `created_at`: `DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()`
 - `updated_at`: `DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()`
@@ -259,7 +256,7 @@ python3 tests/test_storages.py
 | :--- | :--- | :---: | :--- | :--- |
 | **MS SQL** | `agora_user` | 1 | 계정 인증 및 DB 소유권 | `agora_db`에 대한 `dbo` 소유권 확인 |
 | | | 2 | 테이블 생성 확인 | `users`, `redis_server`, `canvas_info`, `cpp_server` 존재 여부 |
-| | | 3 | 회원 [Create] | `users` 테이블 테스트 회원 INSERT (`is_accessed`, `server_ip`, `server_port` 포함) |
+| | | 3 | 회원 [Create] | `users` 테이블 테스트 회원 INSERT (`is_accessed`, `cpp_server_id` FK 포함) |
 | | | 4 | 회원 [Read] | 회원 조회 및 `status = 'ACTIVE'` 확인 |
 | | | 5 | 회원 [Update] | 회원 `status`를 `SUSPENDED`, `is_accessed`를 `0`으로 수정 확인 |
 | | | 6 | 회원 [Delete] | 테스트 회원 데이터 삭제 (클린업) |

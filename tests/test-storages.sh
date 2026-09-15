@@ -110,11 +110,14 @@ else
   log_test_fail "테이블 생성 확인 실패 (발견된 테이블 수: $TBL_CHECK_OUT / 4)" "$TBL_CHECK_OUT"
 fi
 
-# (1-3) 회원 테이블($MSSQL_TABLE_USERS) CRUD 테스트 (is_accessed, server_ip, server_port 포함)
+# (1-3) 회원 테이블($MSSQL_TABLE_USERS) CRUD 테스트 (is_accessed, cpp_server_id FK 포함)
+# 먼저 C++ 서버를 등록하고 해당 server_id를 users에 FK로 연결
 USER_EMAIL="test_crud_user@agora.com"
-MSSQL_USER_INS=$(run_mssql_query "SET NOCOUNT ON; INSERT INTO [$MSSQL_TABLE_USERS] (email, nickname, role, status, is_accessed, server_ip, server_port) VALUES ('$USER_EMAIL', N'AgoraTester', 'ROLE_USER', 'ACTIVE', 1, '127.0.0.1', '8000'); SELECT COUNT(*) FROM [$MSSQL_TABLE_USERS] WHERE email = '$USER_EMAIL';" | tr -dc '0-9')
+TEST_USER_CPP_IP="127.0.0.88"
+TEST_USER_CPP_PORT="7000"
+MSSQL_USER_INS=$(run_mssql_query "SET NOCOUNT ON; INSERT INTO [$MSSQL_TABLE_CPP_SERVER] (server_ip, server_port, is_activated) VALUES ('$TEST_USER_CPP_IP', '$TEST_USER_CPP_PORT', 1); INSERT INTO [$MSSQL_TABLE_USERS] (email, nickname, role, status, is_accessed, cpp_server_id) VALUES ('$USER_EMAIL', N'AgoraTester', 'ROLE_USER', 'ACTIVE', 1, (SELECT server_id FROM [$MSSQL_TABLE_CPP_SERVER] WHERE server_ip = '$TEST_USER_CPP_IP' AND server_port = '$TEST_USER_CPP_PORT')); SELECT COUNT(*) FROM [$MSSQL_TABLE_USERS] WHERE email = '$USER_EMAIL';" | tr -dc '0-9')
 if [ "$MSSQL_USER_INS" = "1" ]; then
-  log_test_pass "회원 테이블($MSSQL_TABLE_USERS) 데이터 삽입 [Create] 성공 (is_accessed, server_ip, server_port 포함)"
+  log_test_pass "회원 테이블($MSSQL_TABLE_USERS) 데이터 삽입 [Create] 성공 (is_accessed, cpp_server_id FK 포함)"
 else
   log_test_fail "회원 테이블 데이터 삽입 실패" "$MSSQL_USER_INS"
 fi
@@ -133,17 +136,17 @@ else
   log_test_fail "회원 테이블 데이터 수정 실패" "$MSSQL_USER_UPD"
 fi
 
-MSSQL_USER_DEL=$(run_mssql_query "SET NOCOUNT ON; DELETE FROM [$MSSQL_TABLE_USERS] WHERE email = '$USER_EMAIL'; SELECT COUNT(*) FROM [$MSSQL_TABLE_USERS] WHERE email = '$USER_EMAIL';" | tr -dc '0-9')
+MSSQL_USER_DEL=$(run_mssql_query "SET NOCOUNT ON; DELETE FROM [$MSSQL_TABLE_USERS] WHERE email = '$USER_EMAIL'; DELETE FROM [$MSSQL_TABLE_CPP_SERVER] WHERE server_ip = '$TEST_USER_CPP_IP' AND server_port = '$TEST_USER_CPP_PORT'; SELECT COUNT(*) FROM [$MSSQL_TABLE_USERS] WHERE email = '$USER_EMAIL';" | tr -dc '0-9')
 if [ "$MSSQL_USER_DEL" = "0" ]; then
   log_test_pass "회원 테이블($MSSQL_TABLE_USERS) 데이터 삭제 [Delete] 성공 (클린업 완료)"
 else
   log_test_fail "회원 테이블 데이터 삭제 실패" "$MSSQL_USER_DEL"
 fi
 
-# (1-4) 캔버스 정보 및 Redis 서버 테이블($MSSQL_TABLE_REDIS_SERVER, $MSSQL_TABLE_CANVAS_INFO) CRUD 테스트
+# (1-4) 캔버스 정보 및 Redis 서버 테이블($MSSQL_TABLE_REDIS_SERVER, $MSSQL_TABLE_CANVAS_INFO) CRUD 테스트 (대리키 FK 연동)
 TEST_CACHE_REDIS_IP="127.0.0.99"
 TEST_CACHE_REDIS_PORT="6399"
-MSSQL_INS_OUT=$(run_mssql_query "SET NOCOUNT ON; INSERT INTO [$MSSQL_TABLE_REDIS_SERVER] (redis_ip, redis_port, is_activated) VALUES ('$TEST_CACHE_REDIS_IP', '$TEST_CACHE_REDIS_PORT', 1); INSERT INTO [$MSSQL_TABLE_CANVAS_INFO] (canvas_id, redis_ip, redis_port, is_cached) VALUES (9999, '$TEST_CACHE_REDIS_IP', '$TEST_CACHE_REDIS_PORT', 0); SELECT COUNT(*) FROM [$MSSQL_TABLE_CANVAS_INFO] WHERE canvas_id = 9999;" | tr -dc '0-9')
+MSSQL_INS_OUT=$(run_mssql_query "SET NOCOUNT ON; INSERT INTO [$MSSQL_TABLE_REDIS_SERVER] (redis_ip, redis_port, is_activated) VALUES ('$TEST_CACHE_REDIS_IP', '$TEST_CACHE_REDIS_PORT', 1); INSERT INTO [$MSSQL_TABLE_CANVAS_INFO] (canvas_id, redis_id, is_cached) VALUES (9999, (SELECT redis_id FROM [$MSSQL_TABLE_REDIS_SERVER] WHERE redis_ip = '$TEST_CACHE_REDIS_IP' AND redis_port = '$TEST_CACHE_REDIS_PORT'), 0); SELECT COUNT(*) FROM [$MSSQL_TABLE_CANVAS_INFO] WHERE canvas_id = 9999;" | tr -dc '0-9')
 if [ "$MSSQL_INS_OUT" = "1" ]; then
   log_test_pass "캔버스 정보 테이블($MSSQL_TABLE_CANVAS_INFO) 데이터 삽입 [Create] 성공 (canvas_id: 9999, Redis FK 연동)"
 else
