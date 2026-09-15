@@ -34,7 +34,7 @@ project-agora-DB/
 │   └── init-mssql.sql              # DDL 및 인덱스/제약조건 정의 SQL
 ├── tests/                          # 일반 사용자 권한 및 CRUD 통합 테스트
 │   ├── test-storages.sh            # Bash 기반 29개 통합 테스트 스위트
-│   └── test_storages.py            # Python 기반 29개 통합 테스트 스위트
+│   └── test_storages.py            # C++ 기반 29개 통합 테스트 스위트
 ```
 
 ---
@@ -112,7 +112,7 @@ docker exec -i agora-mssql /opt/mssql-tools18/bin/sqlcmd \
   -S localhost -U sa -P 'AgoraStrong@Passw0rd!2026' -C -I \
   -v DB_NAME='agora_db' -v DB_USER='agora_user' -v DB_PASSWORD='AgoraUserSecret@Passw0rd!2026' \
      TABLE_USERS='users' TABLE_REDIS_SERVER='redis_server' TABLE_CANVAS_INFO='canvas_info' \
-     TABLE_CPP_SERVER='cpp_server' TABLE_PYTHON_SERVER='cpp_server' \
+     TABLE_CPP_SERVER='cpp_server' \
   < mssql/init-mssql.sql
 ```
 
@@ -242,7 +242,7 @@ Redis는 `canvas:{canvas_id}` 키에 JSON 형식으로 저장하며, Elasticsear
 ./tests/test-storages.sh
 ```
 
-### 방법 B: Python 테스트 스크립트 실행
+### 방법 B: C++ 테스트 스크립트 실행 (Python 스크립트 활용)
 Python 3 표준 라이브러리(urllib, subprocess, json) 기반으로 작성되어 pip 설치 없이 즉시 실행 가능합니다.
 ```bash
 python3 tests/test_storages.py

@@ -68,7 +68,7 @@ if [ -f "$ROOT_DIR/mssql/.env" ]; then
   fi
   MSSQL_TABLE_CPP_SERVER=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep 'MSSQL_TABLE_CPP_SERVER=' | cut -d '=' -f2- | tr -d '\r' || true)
   if [ -z "$MSSQL_TABLE_CPP_SERVER" ]; then
-    MSSQL_TABLE_CPP_SERVER=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep 'MSSQL_TABLE_PYTHON_SERVER=' | cut -d '=' -f2- | tr -d '\r' || echo "cpp_server")
+    MSSQL_TABLE_CPP_SERVER="cpp_server"
   fi
 else
   MSSQL_HOST="127.0.0.1"
@@ -178,9 +178,9 @@ else
 fi
 
 # (1-8) C++ 실시간 서버 테이블($MSSQL_TABLE_CPP_SERVER) 데이터 삽입 [Create] (is_activated 포함)
-TEST_CPP_SERVER_IP="127.0.0.1"
-TEST_CPP_SERVER_PORT="8000"
-MSSQL_CPP_INS=$(run_mssql_query "SET NOCOUNT ON; INSERT INTO [$MSSQL_TABLE_CPP_SERVER] (server_ip, server_port, is_activated) VALUES ('$TEST_CPP_SERVER_IP', '$TEST_CPP_SERVER_PORT', 1); SELECT COUNT(*) FROM [$MSSQL_TABLE_CPP_SERVER] WHERE server_ip = '$TEST_CPP_SERVER_IP' AND server_port = '$TEST_CPP_SERVER_PORT';" | tr -dc '0-9')
+TEST_CPP_SERVER_IP="127.0.0.77"
+TEST_CPP_SERVER_PORT="7077"
+MSSQL_CPP_INS=$(run_mssql_query "SET NOCOUNT ON; INSERT INTO [$MSSQL_TABLE_CPP_SERVER] (server_ip, server_port, ws_port, is_activated) VALUES ('$TEST_CPP_SERVER_IP', '$TEST_CPP_SERVER_PORT', '7078', 1); SELECT COUNT(*) FROM [$MSSQL_TABLE_CPP_SERVER] WHERE server_ip = '$TEST_CPP_SERVER_IP' AND server_port = '$TEST_CPP_SERVER_PORT';" | tr -dc '0-9')
 if [ "$MSSQL_CPP_INS" = "1" ]; then
   log_test_pass "C++ 실시간 서버 테이블($MSSQL_TABLE_CPP_SERVER) 데이터 삽입 [Create] 성공 ($TEST_CPP_SERVER_IP:$TEST_CPP_SERVER_PORT, is_activated: 1)"
 else
@@ -189,8 +189,8 @@ fi
 
 # (1-9) C++ 실시간 서버 테이블($MSSQL_TABLE_CPP_SERVER) 데이터 조회 [Read]
 MSSQL_CPP_READ=$(run_mssql_query "SET NOCOUNT ON; SELECT server_port FROM [$MSSQL_TABLE_CPP_SERVER] WHERE server_ip = '$TEST_CPP_SERVER_IP' AND server_port = '$TEST_CPP_SERVER_PORT';" | tr -dc '0-9')
-if [ "$MSSQL_CPP_READ" = "8000" ]; then
-  log_test_pass "C++ 실시간 서버 테이블($MSSQL_TABLE_CPP_SERVER) 데이터 조회 [Read] 성공 (port: 8000)"
+if [ "$MSSQL_CPP_READ" = "7077" ]; then
+  log_test_pass "C++ 실시간 서버 테이블($MSSQL_TABLE_CPP_SERVER) 데이터 조회 [Read] 성공 (port: 7077)"
 else
   log_test_fail "C++ 실시간 서버 테이블 데이터 조회 실패" "$MSSQL_CPP_READ"
 fi
@@ -198,7 +198,7 @@ fi
 # (1-10) C++ 실시간 서버 테이블($MSSQL_TABLE_CPP_SERVER) 데이터 수정 [Update]
 MSSQL_CPP_UPD=$(run_mssql_query "SET NOCOUNT ON; UPDATE [$MSSQL_TABLE_CPP_SERVER] SET server_port = '8080', is_activated = 0 WHERE server_ip = '$TEST_CPP_SERVER_IP' AND server_port = '$TEST_CPP_SERVER_PORT'; SELECT server_port FROM [$MSSQL_TABLE_CPP_SERVER] WHERE server_ip = '$TEST_CPP_SERVER_IP' AND server_port = '8080';" | tr -dc '0-9')
 if [ "$MSSQL_CPP_UPD" = "8080" ]; then
-  log_test_pass "C++ 실시간 서버 테이블($MSSQL_TABLE_CPP_SERVER) 데이터 수정 [Update] 성공 (8000 -> 8080)"
+  log_test_pass "C++ 실시간 서버 테이블($MSSQL_TABLE_CPP_SERVER) 데이터 수정 [Update] 성공 (7077 -> 8080)"
 else
   log_test_fail "C++ 실시간 서버 테이블 데이터 수정 실패" "$MSSQL_CPP_UPD"
 fi

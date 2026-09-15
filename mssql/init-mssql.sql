@@ -79,13 +79,6 @@ END
 GO
 
 -- 7. C++ 실시간 서버 인스턴스 등록 테이블 (PK: server_id, UQ: server_ip, server_port)
--- 기존 python_server 테이블이 존재하고 신규 테이블명($(TABLE_CPP_SERVER))과 다를 경우 이름 변경 처리
-IF EXISTS (SELECT 1 FROM sys.tables WHERE name = 'python_server')
-   AND NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = '$(TABLE_CPP_SERVER)')
-BEGIN
-    EXEC sp_rename 'python_server', '$(TABLE_CPP_SERVER)';
-END
-GO
 
 IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = '$(TABLE_CPP_SERVER)')
 BEGIN
@@ -353,10 +346,7 @@ BEGIN
     BEGIN
         ALTER TABLE [$(TABLE_CANVAS_INFO)] DROP CONSTRAINT [FK_$(TABLE_CANVAS_INFO)_$(TABLE_CPP_SERVER)];
     END;
-    IF EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_$(TABLE_CANVAS_INFO)_python_server')
-    BEGIN
-        ALTER TABLE [$(TABLE_CANVAS_INFO)] DROP CONSTRAINT [FK_$(TABLE_CANVAS_INFO)_python_server];
-    END;
+
     IF COL_LENGTH('$(TABLE_CANVAS_INFO)', 'server_ip') IS NOT NULL
     BEGIN
         IF COL_LENGTH('$(TABLE_CANVAS_INFO)', 'cpp_server_id') IS NULL

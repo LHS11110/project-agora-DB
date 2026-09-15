@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Agora Storage User Connection & CRUD Test Suite (Python)
+Agora Storage User Connection & CRUD Test Suite (C++ 연동)
 각 저장소(MS SQL, Elasticsearch, Redis Stack)의 .env 동적 설정을 기반으로
-일반 사용자 계정 인증 및 CRUD/Search/Scope 제한 권한을 검증하는 Python 테스트 코드
+일반 사용자 계정 인증 및 CRUD/Search/Scope 제한 권한을 검증하는 C++ 연동용 테스트 코드
 """
 
 import os
@@ -56,7 +56,7 @@ MSSQL_PASS = mssql_env.get("MSSQL_PASSWORD", "AgoraUserSecret@Passw0rd!2026")
 MSSQL_TABLE_USERS = mssql_env.get("MSSQL_TABLE_USERS", "users")
 MSSQL_TABLE_REDIS_SERVER = mssql_env.get("MSSQL_TABLE_REDIS_SERVER", "redis_server")
 MSSQL_TABLE_CANVAS_INFO = mssql_env.get("MSSQL_TABLE_CANVAS_INFO", mssql_env.get("MSSQL_TABLE_CANVAS_CACHE", "canvas_info"))
-MSSQL_TABLE_CPP_SERVER = mssql_env.get("MSSQL_TABLE_CPP_SERVER", mssql_env.get("MSSQL_TABLE_PYTHON_SERVER", "cpp_server"))
+MSSQL_TABLE_CPP_SERVER = mssql_env.get("MSSQL_TABLE_CPP_SERVER", "cpp_server")
 
 # Elasticsearch 설정
 es_raw_ip = es_env.get("ES_EXTERNAL_IP", "127.0.0.1")
@@ -391,7 +391,7 @@ def test_redis():
 
 def main():
     print(f"{CYAN}================================================================{RESET}")
-    print(f"{CYAN}      Agora Storage User Connection & CRUD Test (Python)        {RESET}")
+    print(f"{CYAN}      Agora Storage User Connection & CRUD Test (C++ 연동)        {RESET}")
     print(f"{CYAN}================================================================{RESET}")
 
     test_mssql()
@@ -411,7 +411,7 @@ def main():
     print(f"{CYAN}================================================================{RESET}")
 
     if failed == 0:
-        print(f"\n{GREEN}[SUCCESS] 모든 저장소의 Python CRUD 테스트를 성공적으로 통과했습니다! (저장소 데이터 무결성 유지){RESET}\n")
+        print(f"\n{GREEN}[SUCCESS] 모든 저장소의 C++ 연동 CRUD 테스트를 성공적으로 통과했습니다! (저장소 데이터 무결성 유지){RESET}\n")
         sys.exit(0)
     else:
         print(f"\n{RED}[FAILURE] 일부 테스트 항목이 실패했습니다.{RESET}\n")
