@@ -115,9 +115,9 @@ fi
 USER_EMAIL="test_crud_user@agora.com"
 TEST_USER_CPP_IP="127.0.0.88"
 TEST_USER_CPP_PORT="7000"
-MSSQL_USER_INS=$(run_mssql_query "SET NOCOUNT ON; INSERT INTO [$MSSQL_TABLE_CPP_SERVER] (server_ip, server_port, is_activated) VALUES ('$TEST_USER_CPP_IP', '$TEST_USER_CPP_PORT', 1); INSERT INTO [$MSSQL_TABLE_USERS] (email, nickname, role, status, is_accessed, cpp_server_id) VALUES ('$USER_EMAIL', N'AgoraTester', 'ROLE_USER', 'ACTIVE', 1, (SELECT server_id FROM [$MSSQL_TABLE_CPP_SERVER] WHERE server_ip = '$TEST_USER_CPP_IP' AND server_port = '$TEST_USER_CPP_PORT')); SELECT COUNT(*) FROM [$MSSQL_TABLE_USERS] WHERE email = '$USER_EMAIL';" | tr -dc '0-9')
+MSSQL_USER_INS=$(run_mssql_query "SET NOCOUNT ON; INSERT INTO [$MSSQL_TABLE_CPP_SERVER] (server_ip, server_port, is_activated) VALUES ('$TEST_USER_CPP_IP', '$TEST_USER_CPP_PORT', 1); INSERT INTO [$MSSQL_TABLE_USERS] (email, password_hash, nickname, role, status) VALUES ('$USER_EMAIL', 'dummy_hash', N'AgoraTester', 'ROLE_USER', 'ACTIVE'); INSERT INTO [user_sessions] (user_id, is_accessed, cpp_server_id) VALUES ((SELECT user_id FROM [$MSSQL_TABLE_USERS] WHERE email = '$USER_EMAIL'), 1, (SELECT server_id FROM [$MSSQL_TABLE_CPP_SERVER] WHERE server_ip = '$TEST_USER_CPP_IP' AND server_port = '$TEST_USER_CPP_PORT')); SELECT COUNT(*) FROM [$MSSQL_TABLE_USERS] WHERE email = '$USER_EMAIL';" | tr -dc '0-9')
 if [ "$MSSQL_USER_INS" = "1" ]; then
-  log_test_pass "회원 테이블($MSSQL_TABLE_USERS) 데이터 삽입 [Create] 성공 (is_accessed, cpp_server_id FK 포함)"
+  log_test_pass "회원 테이블($MSSQL_TABLE_USERS) 및 user_sessions 데이터 삽입 [Create] 성공"
 else
   log_test_fail "회원 테이블 데이터 삽입 실패" "$MSSQL_USER_INS"
 fi
@@ -129,9 +129,9 @@ else
   log_test_fail "회원 테이블 데이터 조회 실패" "$MSSQL_USER_READ"
 fi
 
-MSSQL_USER_UPD=$(run_mssql_query "SET NOCOUNT ON; UPDATE [$MSSQL_TABLE_USERS] SET status = 'SUSPENDED', is_accessed = 0 WHERE email = '$USER_EMAIL'; SELECT status FROM [$MSSQL_TABLE_USERS] WHERE email = '$USER_EMAIL';" | tr -d '[:space:]')
+MSSQL_USER_UPD=$(run_mssql_query "SET NOCOUNT ON; UPDATE [$MSSQL_TABLE_USERS] SET status = 'SUSPENDED' WHERE email = '$USER_EMAIL'; UPDATE [user_sessions] SET is_accessed = 0 WHERE user_id = (SELECT user_id FROM [$MSSQL_TABLE_USERS] WHERE email = '$USER_EMAIL'); SELECT status FROM [$MSSQL_TABLE_USERS] WHERE email = '$USER_EMAIL';" | tr -d '[:space:]')
 if [ "$MSSQL_USER_UPD" = "SUSPENDED" ]; then
-  log_test_pass "회원 테이블($MSSQL_TABLE_USERS) 데이터 수정 [Update] 성공 (ACTIVE -> SUSPENDED, is_accessed: 0)"
+  log_test_pass "회원 테이블($MSSQL_TABLE_USERS) 및 user_sessions 데이터 수정 [Update] 성공"
 else
   log_test_fail "회원 테이블 데이터 수정 실패" "$MSSQL_USER_UPD"
 fi
@@ -146,7 +146,7 @@ fi
 # (1-4) 캔버스 정보 및 Redis 서버 테이블($MSSQL_TABLE_REDIS_SERVER, $MSSQL_TABLE_CANVAS_INFO) CRUD 테스트 (대리키 FK 연동)
 TEST_CACHE_REDIS_IP="127.0.0.99"
 TEST_CACHE_REDIS_PORT="6399"
-MSSQL_INS_OUT=$(run_mssql_query "SET NOCOUNT ON; INSERT INTO [$MSSQL_TABLE_REDIS_SERVER] (redis_ip, redis_port, is_activated) VALUES ('$TEST_CACHE_REDIS_IP', '$TEST_CACHE_REDIS_PORT', 1); INSERT INTO [$MSSQL_TABLE_CANVAS_INFO] (canvas_id, redis_id, is_cached) VALUES (9999, (SELECT redis_id FROM [$MSSQL_TABLE_REDIS_SERVER] WHERE redis_ip = '$TEST_CACHE_REDIS_IP' AND redis_port = '$TEST_CACHE_REDIS_PORT'), 0); SELECT COUNT(*) FROM [$MSSQL_TABLE_CANVAS_INFO] WHERE canvas_id = 9999;" | tr -dc '0-9')
+MSSQL_INS_OUT=$(run_mssql_query "SET NOCOUNT ON; INSERT INTO [$MSSQL_TABLE_REDIS_SERVER] (redis_ip, redis_port, is_activated) VALUES ('$TEST_CACHE_REDIS_IP', '$TEST_CACHE_REDIS_PORT', 1); SET IDENTITY_INSERT [$MSSQL_TABLE_CANVAS_INFO] ON; INSERT INTO [$MSSQL_TABLE_CANVAS_INFO] (canvas_id, redis_id, is_cached) VALUES (9999, (SELECT redis_id FROM [$MSSQL_TABLE_REDIS_SERVER] WHERE redis_ip = '$TEST_CACHE_REDIS_IP' AND redis_port = '$TEST_CACHE_REDIS_PORT'), 0); SET IDENTITY_INSERT [$MSSQL_TABLE_CANVAS_INFO] OFF; SELECT COUNT(*) FROM [$MSSQL_TABLE_CANVAS_INFO] WHERE canvas_id = 9999;" | tr -dc '0-9')
 if [ "$MSSQL_INS_OUT" = "1" ]; then
   log_test_pass "캔버스 정보 테이블($MSSQL_TABLE_CANVAS_INFO) 데이터 삽입 [Create] 성공 (canvas_id: 9999, Redis FK 연동)"
 else
@@ -275,15 +275,6 @@ ES_DOC_PAYLOAD=$(cat <<EOF
     "group-name1": [1, 2],
     "group-name2": [3, 4]
   },
-  "items": {
-    "item-1": {
-      "item-id": 1,
-      "type": 10,
-      "pos": [120.5, 340.0, 1],
-      "data1": "sample metadata",
-      "permission": ["admin-group", "group-name1"]
-    }
-  },
   "init-group": "group-name1"
 }
 EOF
@@ -399,7 +390,7 @@ fi
 TEST_REDIS_KEY="${REDIS_KEY_PREFIX}test-crud"
 
 # (3-3) 데이터 삽입 [Create] (신규 캔버스 스키마 반영)
-REDIS_JSON_PAYLOAD='{"canvas-id":100,"canvas-name":"Test CRUD Canvas","admin-user-id":1000,"description":"this is test description","canvas-password-hash":"hash_secret_example","people":[1,2,3,4],"inner-group":{"g1":[1,2]},"items":{"item-1":{"item-id":1,"type":10,"pos":[120.5,340.0,1],"data1":"sample metadata","permission":["admin-group","g1"]}},"init-group":"g1"}'
+REDIS_JSON_PAYLOAD='{"canvas-id":100,"canvas-name":"Test CRUD Canvas","admin-user-id":1000,"description":"this is test description","canvas-password-hash":"hash_secret_example","people":[1,2,3,4],"inner-group":{"g1":[1,2]},"init-group":"g1"}'
 
 REDIS_INSERT_OUT=$(run_redis_user_cmd JSON.SET "$TEST_REDIS_KEY" $ "$REDIS_JSON_PAYLOAD")
 if echo "$REDIS_INSERT_OUT" | grep -q "OK"; then

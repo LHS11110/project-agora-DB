@@ -35,8 +35,6 @@ project-agora-DB/
 ├── tests/                          # 일반 사용자 권한 및 CRUD 통합 테스트
 │   ├── test-storages.sh            # Bash 기반 29개 통합 테스트 스위트
 │   └── test_storages.py            # Python 기반 29개 통합 테스트 스위트
-├── elasticsearch_and_redis_stack.txt # 캔버스 JSON 데이터 모델 명세
-└── mssql.txt                       # MS SQL 테이블 요구사항 명세
 ```
 
 ---
@@ -157,15 +155,21 @@ docker exec -i agora-mssql /opt/mssql-tools18/bin/sqlcmd \
 - `status`: `NVARCHAR(20) NOT NULL DEFAULT 'ACTIVE'` (CHECK 제약 조건: `ACTIVE`, `SUSPENDED`, `WITHDRAWN`)
 - `oauth_provider`: `NVARCHAR(50) NULL`
 - `oauth_id`: `NVARCHAR(255) NULL`
-- `is_accessed`: `BIT NOT NULL DEFAULT 0`
-- `cpp_server_id`: `INT NULL` (현재 접속 C++ 실시간 서버, FK: `cpp_server(server_id)`)
-- `last_login_at`: `DATETIME2 NULL`
 - `password_changed_at`: `DATETIME2 NULL`
 - `created_at`: `DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()`
 - `updated_at`: `DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()`
+- **제약조건**:
+  - `CK_Users_Auth`: `CHECK (password_hash IS NOT NULL OR (oauth_provider IS NOT NULL AND oauth_id IS NOT NULL))`
 - **인덱스**:
   - `IX_Users_OAuth` : `(oauth_provider, oauth_id)` (조건부 필터 인덱스: `WHERE oauth_provider IS NOT NULL`)
   - `IX_Users_Nickname` : `(nickname)` (넌클러스터드 인덱스)
+
+#### `user_sessions` (회원 접속 세션 테이블)
+- `user_id`: `INT NOT NULL` (PK, FK: `users(user_id)`)
+- `cpp_server_id`: `INT NULL` (현재 접속 C++ 실시간 서버, FK: `cpp_server(server_id)`)
+- `is_accessed`: `BIT NOT NULL DEFAULT 0`
+- `last_login_at`: `DATETIME2 NULL`
+- `updated_at`: `DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()`
 
 #### `redis_server` (Redis 서버 인스턴스 관리)
 - `redis_id`: `INT IDENTITY(1,1)` (PK)
@@ -182,9 +186,9 @@ docker exec -i agora-mssql /opt/mssql-tools18/bin/sqlcmd \
 - `created_at`: `DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()`
 
 #### `canvas_info` (캔버스 서버 할당 및 상태 관리)
-- `canvas_id`: `INT` (PK, 클러스터드 인덱스)
+- `canvas_id`: `INT IDENTITY(1,1)` (PK 자동 증가, 클러스터드 인덱스)
 - `redis_id`: `INT NULL` (할당된 Redis 서버, FK: `redis_server(redis_id)`)
-- `server_id`: `INT NULL` (할당된 C++ 실시간 서버, FK: `cpp_server(server_id)`)
+- `cpp_server_id`: `INT NULL` (할당된 C++ 실시간 서버, FK: `cpp_server(server_id)`)
 - `is_cached`: `BIT NOT NULL DEFAULT 0`
 - `created_at`: `DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()`
 - `updated_at`: `DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()`
@@ -209,15 +213,6 @@ Redis는 `canvas:{canvas_id}` 키에 JSON 형식으로 저장하며, Elasticsear
     "init-group-name": [1, 2, 3, 4],
     "admin-group": [1]
   },
-  "items": {
-    "item-1": {
-      "item-id": 1,
-      "type": 10,
-      "pos": [120.5, 340.0, 1],
-      "data1": "sample metadata",
-      "permission": ["admin-group", "group-name1"]
-    }
-  },
   "init-group": "init-group-name"
 }
 ```
@@ -228,8 +223,10 @@ Redis는 `canvas:{canvas_id}` 키에 JSON 형식으로 저장하며, Elasticsear
 - `canvas-password-hash`: 비밀번호 해시 (공백인 경우 퍼블릭 캔버스)
 - `people`: 캔버스에 참여 중인 사용자 id 리스트 (`[1, 2, 3, 4]`)
 - `inner-group`: 키(문자열 그룹명) : 값(사용자 아이디 리스트)
-- `items`: 캔버스 내부 아이템 맵 (`pos`의 `[x, y, z]`에서 `z`는 깊이를 의미하는 정수값, `permission`은 허용 그룹명 리스트)
 - `init-group`: 기본 할당 그룹명
+
+> [!NOTE]
+> 확장성(Scalability) 확보를 위해 캔버스 내 `items`(도형, 텍스트 등)는 캔버스 메타데이터 도큐먼트에 중첩(Nested)시키지 않고 애플리케이션 단에서 `canvas:{canvas_id}:item:{item_id}` 형태의 독립된 문서/키로 분리 저장하여 관리합니다.
 
 ---
 

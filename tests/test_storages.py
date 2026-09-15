@@ -123,16 +123,18 @@ def test_mssql():
         test_user_cpp_ip = "127.0.0.88"
         test_user_cpp_port = "7000"
         run_query(f"INSERT INTO [{MSSQL_TABLE_CPP_SERVER}] (server_ip, server_port, is_activated) VALUES ('{test_user_cpp_ip}', '{test_user_cpp_port}', 1);")
-        run_query(f"INSERT INTO [{MSSQL_TABLE_USERS}] (email, nickname, role, status, is_accessed, cpp_server_id) VALUES ('{test_email}', N'PyTester', 'ROLE_USER', 'ACTIVE', 1, (SELECT server_id FROM [{MSSQL_TABLE_CPP_SERVER}] WHERE server_ip = '{test_user_cpp_ip}' AND server_port = '{test_user_cpp_port}'));")
+        run_query(f"INSERT INTO [{MSSQL_TABLE_USERS}] (email, password_hash, nickname, role, status) VALUES ('{test_email}', 'dummy_hash', N'PyTester', 'ROLE_USER', 'ACTIVE');")
+        run_query(f"INSERT INTO [user_sessions] (user_id, is_accessed, cpp_server_id) VALUES ((SELECT user_id FROM [{MSSQL_TABLE_USERS}] WHERE email = '{test_email}'), 1, (SELECT server_id FROM [{MSSQL_TABLE_CPP_SERVER}] WHERE server_ip = '{test_user_cpp_ip}' AND server_port = '{test_user_cpp_port}'));")
         u_ins = run_query(f"SELECT COUNT(*) FROM [{MSSQL_TABLE_USERS}] WHERE email = '{test_email}';")
-        record_test(f"회원 테이블({MSSQL_TABLE_USERS}) 데이터 삽입 [Create] 성공 (is_accessed, cpp_server_id FK 포함)", u_ins == "1", u_ins)
+        record_test(f"회원 테이블({MSSQL_TABLE_USERS}) 및 user_sessions 데이터 삽입 [Create] 성공", u_ins == "1", u_ins)
 
         u_read = run_query(f"SELECT status FROM [{MSSQL_TABLE_USERS}] WHERE email = '{test_email}';")
         record_test(f"회원 테이블({MSSQL_TABLE_USERS}) 데이터 조회 [Read] 성공 (status: ACTIVE)", u_read == "ACTIVE", u_read)
 
-        run_query(f"UPDATE [{MSSQL_TABLE_USERS}] SET status = 'SUSPENDED', is_accessed = 0 WHERE email = '{test_email}';")
+        run_query(f"UPDATE [{MSSQL_TABLE_USERS}] SET status = 'SUSPENDED' WHERE email = '{test_email}';")
+        run_query(f"UPDATE [user_sessions] SET is_accessed = 0 WHERE user_id = (SELECT user_id FROM [{MSSQL_TABLE_USERS}] WHERE email = '{test_email}');")
         u_upd = run_query(f"SELECT status FROM [{MSSQL_TABLE_USERS}] WHERE email = '{test_email}';")
-        record_test(f"회원 테이블({MSSQL_TABLE_USERS}) 데이터 수정 [Update] 성공 (ACTIVE -> SUSPENDED, is_accessed: 0)", u_upd == "SUSPENDED", u_upd)
+        record_test(f"회원 테이블({MSSQL_TABLE_USERS}) 및 user_sessions 데이터 수정 [Update] 성공", u_upd == "SUSPENDED", u_upd)
 
         run_query(f"DELETE FROM [{MSSQL_TABLE_USERS}] WHERE email = '{test_email}';")
         run_query(f"DELETE FROM [{MSSQL_TABLE_CPP_SERVER}] WHERE server_ip = '{test_user_cpp_ip}' AND server_port = '{test_user_cpp_port}';")
@@ -143,7 +145,7 @@ def test_mssql():
         test_cache_redis_ip = "127.0.0.99"
         test_cache_redis_port = "6399"
         run_query(f"INSERT INTO [{MSSQL_TABLE_REDIS_SERVER}] (redis_ip, redis_port, is_activated) VALUES ('{test_cache_redis_ip}', '{test_cache_redis_port}', 1);")
-        run_query(f"INSERT INTO [{MSSQL_TABLE_CANVAS_INFO}] (canvas_id, redis_id, is_cached) VALUES (8888, (SELECT redis_id FROM [{MSSQL_TABLE_REDIS_SERVER}] WHERE redis_ip = '{test_cache_redis_ip}' AND redis_port = '{test_cache_redis_port}'), 0);")
+        run_query(f"SET IDENTITY_INSERT [{MSSQL_TABLE_CANVAS_INFO}] ON; INSERT INTO [{MSSQL_TABLE_CANVAS_INFO}] (canvas_id, redis_id, is_cached) VALUES (8888, (SELECT redis_id FROM [{MSSQL_TABLE_REDIS_SERVER}] WHERE redis_ip = '{test_cache_redis_ip}' AND redis_port = '{test_cache_redis_port}'), 0); SET IDENTITY_INSERT [{MSSQL_TABLE_CANVAS_INFO}] OFF;")
         ins_cnt = run_query(f"SELECT COUNT(*) FROM [{MSSQL_TABLE_CANVAS_INFO}] WHERE canvas_id = 8888;")
         record_test(f"캔버스 정보 테이블({MSSQL_TABLE_CANVAS_INFO}) 데이터 삽입 [Create] 성공 (canvas_id: 8888, Redis FK 연동)", ins_cnt == "1", ins_cnt)
 
@@ -230,15 +232,6 @@ def test_elasticsearch():
             "inner-group": {
                 "group-name1": [1, 2],
                 "group-name2": [3, 4]
-            },
-            "items": {
-                "item-1": {
-                    "item-id": 1,
-                    "type": 10,
-                    "pos": [120.5, 340.0, 1],
-                    "data1": "sample metadata",
-                    "permission": ["admin-group", "group-name1"]
-                }
             },
             "init-group": "group-name1"
         }).encode()
@@ -363,15 +356,6 @@ def test_redis():
             "canvas-password-hash": "hash_secret_example",
             "people": [1, 2, 3, 4],
             "inner-group": {"g1": [1, 2]},
-            "items": {
-                "item-1": {
-                    "item-id": 1,
-                    "type": 10,
-                    "pos": [120.5, 340.0, 1],
-                    "data1": "sample metadata",
-                    "permission": ["admin-group", "g1"]
-                }
-            },
             "init-group": "g1"
         })
         insert_res = run_redis_cmd("JSON.SET", test_key, "$", test_payload)

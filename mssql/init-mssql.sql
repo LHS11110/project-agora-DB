@@ -130,9 +130,6 @@ BEGIN
         status               NVARCHAR(20)      NOT NULL DEFAULT 'ACTIVE',    -- ACTIVE, SUSPENDED, WITHDRAWN
         oauth_provider       NVARCHAR(50)      NULL,                  -- OAuth 제공자 (NULL 가능)
         oauth_id             NVARCHAR(255)     NULL,                  -- 제공자별 고유 회원 식별자 (NULL 가능)
-        is_accessed          BIT               NOT NULL DEFAULT 0,    -- 접속 여부
-        cpp_server_id        INT               NULL,                  -- 현재 접속 C++ 실시간 서버 ID (FK)
-        last_login_at        DATETIME2         NULL,                  -- 마지막 로그인 시간 (NULL 가능)
         password_changed_at  DATETIME2         NULL,                  -- 비밀번호 변경 시간 (NULL 가능)
         created_at           DATETIME2         NOT NULL DEFAULT SYSUTCDATETIME(),
         updated_at           DATETIME2         NOT NULL DEFAULT SYSUTCDATETIME(),
@@ -141,45 +138,33 @@ BEGIN
         CONSTRAINT [CK_$(TABLE_USERS)_Status] CHECK (status IN ('ACTIVE', 'SUSPENDED', 'WITHDRAWN')),
         CONSTRAINT [CK_$(TABLE_USERS)_Role] CHECK (role IN ('ROLE_USER', 'ROLE_ADMIN')),
         CONSTRAINT [CK_$(TABLE_USERS)_Nickname] CHECK (LEN(LTRIM(RTRIM(nickname))) > 0),
-        CONSTRAINT [FK_$(TABLE_USERS)_$(TABLE_CPP_SERVER)] FOREIGN KEY (cpp_server_id)
-            REFERENCES [$(TABLE_CPP_SERVER)] (server_id)
-            ON DELETE SET NULL
+        CONSTRAINT [CK_$(TABLE_USERS)_Auth] CHECK (password_hash IS NOT NULL OR (oauth_provider IS NOT NULL AND oauth_id IS NOT NULL))
     );
 END
 ELSE
 BEGIN
-    -- 신규 컬럼 추가 확인 및 반영
-    IF COL_LENGTH('$(TABLE_USERS)', 'is_accessed') IS NULL
+    -- 기존 세션 관련 컬럼 제거
+    IF EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_$(TABLE_USERS)_$(TABLE_CPP_SERVER)')
     BEGIN
-        ALTER TABLE [$(TABLE_USERS)] ADD is_accessed BIT NOT NULL DEFAULT 0;
+        ALTER TABLE [$(TABLE_USERS)] DROP CONSTRAINT [FK_$(TABLE_USERS)_$(TABLE_CPP_SERVER)];
+    END;
+    IF COL_LENGTH('$(TABLE_USERS)', 'cpp_server_id') IS NOT NULL
+    BEGIN
+        ALTER TABLE [$(TABLE_USERS)] DROP COLUMN cpp_server_id;
+    END;
+    IF COL_LENGTH('$(TABLE_USERS)', 'is_accessed') IS NOT NULL
+    BEGIN
+        ALTER TABLE [$(TABLE_USERS)] DROP COLUMN is_accessed;
+    END;
+    IF COL_LENGTH('$(TABLE_USERS)', 'last_login_at') IS NOT NULL
+    BEGIN
+        ALTER TABLE [$(TABLE_USERS)] DROP COLUMN last_login_at;
     END;
 
-    -- server_ip/server_port → cpp_server_id FK 마이그레이션
-    IF COL_LENGTH('$(TABLE_USERS)', 'server_ip') IS NOT NULL
+    -- 인증 무결성 제약조건 추가
+    IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_$(TABLE_USERS)_Auth')
     BEGIN
-        IF COL_LENGTH('$(TABLE_USERS)', 'cpp_server_id') IS NULL
-        BEGIN
-            ALTER TABLE [$(TABLE_USERS)] ADD cpp_server_id INT NULL;
-            -- 기존 server_ip/port 데이터를 cpp_server_id로 마이그레이션
-            EXEC('
-                UPDATE u SET u.cpp_server_id = s.server_id
-                FROM [$(TABLE_USERS)] u
-                INNER JOIN [$(TABLE_CPP_SERVER)] s ON u.server_ip = s.server_ip AND u.server_port = s.server_port
-                WHERE u.server_ip IS NOT NULL AND u.server_port IS NOT NULL
-            ');
-        END;
-        ALTER TABLE [$(TABLE_USERS)] DROP COLUMN server_ip;
-        ALTER TABLE [$(TABLE_USERS)] DROP COLUMN server_port;
-    END;
-    IF COL_LENGTH('$(TABLE_USERS)', 'cpp_server_id') IS NULL
-    BEGIN
-        ALTER TABLE [$(TABLE_USERS)] ADD cpp_server_id INT NULL;
-    END;
-    IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_$(TABLE_USERS)_$(TABLE_CPP_SERVER)')
-    BEGIN
-        ALTER TABLE [$(TABLE_USERS)] ADD CONSTRAINT [FK_$(TABLE_USERS)_$(TABLE_CPP_SERVER)]
-            FOREIGN KEY (cpp_server_id) REFERENCES [$(TABLE_CPP_SERVER)] (server_id)
-            ON DELETE SET NULL;
+        ALTER TABLE [$(TABLE_USERS)] ADD CONSTRAINT [CK_$(TABLE_USERS)_Auth] CHECK (password_hash IS NOT NULL OR (oauth_provider IS NOT NULL AND oauth_id IS NOT NULL));
     END;
     
     -- role 제약조건 임시 해제 후 타입 변경 및 제약조건 재설정
@@ -253,6 +238,29 @@ BEGIN
 END
 GO
 
+-- 8-2. 세션 테이블 (PK: user_id)
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'user_sessions')
+BEGIN
+    CREATE TABLE [user_sessions] (
+        user_id              INT               NOT NULL,
+        cpp_server_id        INT               NULL,
+        is_accessed          BIT               NOT NULL DEFAULT 0,
+        last_login_at        DATETIME2         NULL,
+        updated_at           DATETIME2         NOT NULL DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT [PK_user_sessions] PRIMARY KEY CLUSTERED (user_id),
+        CONSTRAINT [FK_user_sessions_users] FOREIGN KEY (user_id) REFERENCES [$(TABLE_USERS)] (user_id) ON DELETE CASCADE,
+        CONSTRAINT [FK_user_sessions_$(TABLE_CPP_SERVER)] FOREIGN KEY (cpp_server_id) REFERENCES [$(TABLE_CPP_SERVER)] (server_id) ON DELETE SET NULL
+    );
+END
+ELSE
+BEGIN
+    IF COL_LENGTH('user_sessions', 'is_accessed') IS NULL
+    BEGIN
+        ALTER TABLE [user_sessions] ADD is_accessed BIT NOT NULL DEFAULT 0;
+    END;
+END
+GO
+
 -- 9. 캔버스 정보 테이블 (캔버스 서버 할당 및 상태 관리, PK: canvas_id, FK: redis_server(redis_id), FK: cpp_server(server_id))
 -- 기존 canvas_cache 테이블이 존재하고 신규 테이블명과 다를 경우 처리
 IF EXISTS (SELECT 1 FROM sys.tables WHERE name = 'canvas_cache')
@@ -265,18 +273,18 @@ GO
 IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = '$(TABLE_CANVAS_INFO)')
 BEGIN
     CREATE TABLE [$(TABLE_CANVAS_INFO)] (
-        canvas_id    INT           NOT NULL,              -- 캔버스 고유 ID (PK, 클러스터드 인덱스)
-        redis_id     INT           NULL,                  -- Redis 서버 ID (FK → redis_server.redis_id)
-        server_id    INT           NULL,                  -- C++ 실시간 서버 ID (FK → cpp_server.server_id)
-        is_cached    BIT           NOT NULL DEFAULT 0,    -- 캐시 여부 (NULL 불가, 0: False, 1: True)
-        created_at   DATETIME2     NOT NULL DEFAULT SYSUTCDATETIME(),
-        updated_at   DATETIME2     NOT NULL DEFAULT SYSUTCDATETIME(),
+        canvas_id     INT           IDENTITY(1,1) NOT NULL, -- 캔버스 고유 ID (PK, 클러스터드 인덱스)
+        redis_id      INT           NULL,                  -- Redis 서버 ID (FK → redis_server.redis_id)
+        cpp_server_id INT           NULL,                  -- C++ 실시간 서버 ID (FK → cpp_server.server_id)
+        is_cached     BIT           NOT NULL DEFAULT 0,    -- 캐시 여부 (NULL 불가, 0: False, 1: True)
+        created_at    DATETIME2     NOT NULL DEFAULT SYSUTCDATETIME(),
+        updated_at    DATETIME2     NOT NULL DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_$(TABLE_CANVAS_INFO)] PRIMARY KEY CLUSTERED (canvas_id),
         CONSTRAINT [FK_$(TABLE_CANVAS_INFO)_$(TABLE_REDIS_SERVER)] FOREIGN KEY (redis_id)
             REFERENCES [$(TABLE_REDIS_SERVER)] (redis_id)
             ON DELETE SET NULL
             ON UPDATE CASCADE,
-        CONSTRAINT [FK_$(TABLE_CANVAS_INFO)_$(TABLE_CPP_SERVER)] FOREIGN KEY (server_id)
+        CONSTRAINT [FK_$(TABLE_CANVAS_INFO)_$(TABLE_CPP_SERVER)] FOREIGN KEY (cpp_server_id)
             REFERENCES [$(TABLE_CPP_SERVER)] (server_id)
             ON DELETE SET NULL
             ON UPDATE CASCADE
@@ -337,7 +345,7 @@ BEGIN
             ON DELETE SET NULL ON UPDATE CASCADE;
     END;
 
-    -- 기존 복합 자연키 FK → 대리키 FK 마이그레이션 (server_ip/port → server_id)
+    -- 기존 복합 자연키 FK → 대리키 FK 마이그레이션 (server_ip/port → cpp_server_id)
     IF EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_$(TABLE_CANVAS_INFO)_$(TABLE_CPP_SERVER)')
     BEGIN
         ALTER TABLE [$(TABLE_CANVAS_INFO)] DROP CONSTRAINT [FK_$(TABLE_CANVAS_INFO)_$(TABLE_CPP_SERVER)];
@@ -348,11 +356,11 @@ BEGIN
     END;
     IF COL_LENGTH('$(TABLE_CANVAS_INFO)', 'server_ip') IS NOT NULL
     BEGIN
-        IF COL_LENGTH('$(TABLE_CANVAS_INFO)', 'server_id') IS NULL
+        IF COL_LENGTH('$(TABLE_CANVAS_INFO)', 'cpp_server_id') IS NULL
         BEGIN
-            ALTER TABLE [$(TABLE_CANVAS_INFO)] ADD server_id INT NULL;
+            ALTER TABLE [$(TABLE_CANVAS_INFO)] ADD cpp_server_id INT NULL;
             EXEC('
-                UPDATE c SET c.server_id = s.server_id
+                UPDATE c SET c.cpp_server_id = s.server_id
                 FROM [$(TABLE_CANVAS_INFO)] c
                 INNER JOIN [$(TABLE_CPP_SERVER)] s ON c.server_ip = s.server_ip AND c.server_port = s.server_port
                 WHERE c.server_ip IS NOT NULL AND c.server_port IS NOT NULL
@@ -361,14 +369,14 @@ BEGIN
         ALTER TABLE [$(TABLE_CANVAS_INFO)] DROP COLUMN server_ip;
         ALTER TABLE [$(TABLE_CANVAS_INFO)] DROP COLUMN server_port;
     END;
-    IF COL_LENGTH('$(TABLE_CANVAS_INFO)', 'server_id') IS NULL
+    IF COL_LENGTH('$(TABLE_CANVAS_INFO)', 'cpp_server_id') IS NULL
     BEGIN
-        ALTER TABLE [$(TABLE_CANVAS_INFO)] ADD server_id INT NULL;
+        ALTER TABLE [$(TABLE_CANVAS_INFO)] ADD cpp_server_id INT NULL;
     END;
     IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_$(TABLE_CANVAS_INFO)_$(TABLE_CPP_SERVER)')
     BEGIN
         ALTER TABLE [$(TABLE_CANVAS_INFO)] ADD CONSTRAINT [FK_$(TABLE_CANVAS_INFO)_$(TABLE_CPP_SERVER)]
-            FOREIGN KEY (server_id) REFERENCES [$(TABLE_CPP_SERVER)] (server_id)
+            FOREIGN KEY (cpp_server_id) REFERENCES [$(TABLE_CPP_SERVER)] (server_id)
             ON DELETE SET NULL ON UPDATE CASCADE;
     END;
 END
