@@ -93,12 +93,14 @@ BEGIN
         server_id     INT IDENTITY(1,1) NOT NULL,
         server_ip     VARCHAR(45)       NOT NULL,          -- C++ 실시간 서버 IP 주소 (IPv4/IPv6, 공백 불가)
         server_port   VARCHAR(10)       NOT NULL,          -- C++ 실시간 서버 포트 번호 (공백 불가)
+        ws_port       VARCHAR(10)       NOT NULL,          -- C++ 웹소켓 포트 번호
         is_activated  BIT               NOT NULL DEFAULT 0, -- 활성화 여부
         created_at    DATETIME2         NOT NULL DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_$(TABLE_CPP_SERVER)] PRIMARY KEY CLUSTERED (server_id),
-        CONSTRAINT [UQ_$(TABLE_CPP_SERVER)_ip_port] UNIQUE NONCLUSTERED (server_ip, server_port),
+        CONSTRAINT [UQ_$(TABLE_CPP_SERVER)_ip_port] UNIQUE NONCLUSTERED (server_ip, server_port, ws_port),
         CONSTRAINT [CK_$(TABLE_CPP_SERVER)_ip] CHECK (LEN(LTRIM(RTRIM(server_ip))) > 0),
-        CONSTRAINT [CK_$(TABLE_CPP_SERVER)_port] CHECK (LEN(LTRIM(RTRIM(server_port))) > 0)
+        CONSTRAINT [CK_$(TABLE_CPP_SERVER)_port] CHECK (LEN(LTRIM(RTRIM(server_port))) > 0),
+        CONSTRAINT [CK_$(TABLE_CPP_SERVER)_ws_port] CHECK (LEN(LTRIM(RTRIM(ws_port))) > 0)
     );
 END
 ELSE
@@ -113,7 +115,8 @@ BEGIN
     END;
     IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_$(TABLE_CPP_SERVER)_port')
     BEGIN
-        ALTER TABLE [$(TABLE_CPP_SERVER)] ADD CONSTRAINT [CK_$(TABLE_CPP_SERVER)_port] CHECK (LEN(LTRIM(RTRIM(server_port))) > 0);
+        ALTER TABLE [$(TABLE_CPP_SERVER)] ADD CONSTRAINT [CK_$(TABLE_CPP_SERVER)_port] CHECK (LEN(LTRIM(RTRIM(server_port))) > 0),
+        CONSTRAINT [CK_$(TABLE_CPP_SERVER)_ws_port] CHECK (LEN(LTRIM(RTRIM(ws_port))) > 0);
     END;
 END
 GO
