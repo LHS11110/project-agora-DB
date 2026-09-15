@@ -182,6 +182,7 @@ docker exec -i agora-mssql /opt/mssql-tools18/bin/sqlcmd \
 - `server_id`: `INT IDENTITY(1,1)` (PK, 클러스터드 인덱스)
 - `server_ip`: `VARCHAR(45) NOT NULL`
 - `server_port`: `VARCHAR(10) NOT NULL`
+- `ws_port`: `VARCHAR(10) NOT NULL` (웹소켓 포트)
 - `is_activated`: `BIT NOT NULL DEFAULT 0`
 - `created_at`: `DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()`
 
