@@ -168,14 +168,14 @@ docker exec -i agora-mssql /opt/mssql-tools18/bin/sqlcmd \
   - `IX_Users_Nickname` : `(nickname)` (넌클러스터드 인덱스)
 
 #### `user_sessions` (회원 접속 세션 테이블)
-- `user_id`: `INT NOT NULL` (PK, FK: `users(user_id)` - `ON DELETE/UPDATE NO ACTION`)
+- `user_id`: `INT NOT NULL` (PK 클러스터드 인덱스, FK: `users(user_id)` - `ON DELETE/UPDATE NO ACTION`)
 - `cpp_server_id`: `INT NULL` (현재 접속 C++ 실시간 서버, FK: `cpp_server(server_id)` - `ON DELETE/UPDATE NO ACTION`)
 - `is_accessed`: `BIT NOT NULL DEFAULT 0`
 - `last_login_at`: `DATETIME2 NULL`
 - `updated_at`: `DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()`
 
 #### `redis_server` (Redis 서버 인스턴스 관리)
-- `redis_id`: `INT IDENTITY(1,1)` (PK)
+- `redis_id`: `INT IDENTITY(1,1)` (PK 클러스터드 인덱스)
 - `redis_ip`: `VARCHAR(45) NOT NULL`
 - `redis_port`: `VARCHAR(10) NOT NULL`
 - `is_activated`: `BIT NOT NULL DEFAULT 0`
