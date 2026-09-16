@@ -145,6 +145,9 @@ docker exec -i agora-mssql /opt/mssql-tools18/bin/sqlcmd \
 
 ### 1) MS SQL Server 스키마
 
+> [!NOTE]
+> **참조 무결성 제약조건**: 다른 테이블에서 외래키로 참조 중인 데이터가 삭제 또는 변경될 시 명령이 취소되도록, 모든 외래키 제약조건에는 기본적으로 `ON DELETE/UPDATE NO ACTION`이 설정되어 있습니다.
+
 #### `users` (회원 테이블)
 - `user_id`: `INT IDENTITY(1,1)` (PK 자동 증가, 클러스터드 인덱스)
 - `email`: `NVARCHAR(255) NOT NULL UNIQUE` (넌클러스터드 인덱스 `UQ_Users_Email`)
@@ -165,8 +168,8 @@ docker exec -i agora-mssql /opt/mssql-tools18/bin/sqlcmd \
   - `IX_Users_Nickname` : `(nickname)` (넌클러스터드 인덱스)
 
 #### `user_sessions` (회원 접속 세션 테이블)
-- `user_id`: `INT NOT NULL` (PK, FK: `users(user_id)`)
-- `cpp_server_id`: `INT NULL` (현재 접속 C++ 실시간 서버, FK: `cpp_server(server_id)`)
+- `user_id`: `INT NOT NULL` (PK, FK: `users(user_id)` - `ON DELETE/UPDATE NO ACTION`)
+- `cpp_server_id`: `INT NULL` (현재 접속 C++ 실시간 서버, FK: `cpp_server(server_id)` - `ON DELETE/UPDATE NO ACTION`)
 - `is_accessed`: `BIT NOT NULL DEFAULT 0`
 - `last_login_at`: `DATETIME2 NULL`
 - `updated_at`: `DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()`
@@ -188,8 +191,8 @@ docker exec -i agora-mssql /opt/mssql-tools18/bin/sqlcmd \
 
 #### `canvas_info` (캔버스 서버 할당 및 상태 관리)
 - `canvas_id`: `INT IDENTITY(1,1)` (PK 자동 증가, 클러스터드 인덱스)
-- `redis_id`: `INT NULL` (할당된 Redis 서버, FK: `redis_server(redis_id)`)
-- `cpp_server_id`: `INT NULL` (할당된 C++ 실시간 서버, FK: `cpp_server(server_id)`)
+- `redis_id`: `INT NULL` (할당된 Redis 서버, FK: `redis_server(redis_id)` - `ON DELETE/UPDATE NO ACTION`)
+- `cpp_server_id`: `INT NULL` (할당된 C++ 실시간 서버, FK: `cpp_server(server_id)` - `ON DELETE/UPDATE NO ACTION`)
 - `is_cached`: `BIT NOT NULL DEFAULT 0`
 - `created_at`: `DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()`
 - `updated_at`: `DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()`

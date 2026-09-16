@@ -244,8 +244,8 @@ BEGIN
         last_login_at        DATETIME2         NULL,
         updated_at           DATETIME2         NOT NULL DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_user_sessions] PRIMARY KEY CLUSTERED (user_id),
-        CONSTRAINT [FK_user_sessions_users] FOREIGN KEY (user_id) REFERENCES [$(TABLE_USERS)] (user_id) ON DELETE CASCADE,
-        CONSTRAINT [FK_user_sessions_$(TABLE_CPP_SERVER)] FOREIGN KEY (cpp_server_id) REFERENCES [$(TABLE_CPP_SERVER)] (server_id) ON DELETE SET NULL
+        CONSTRAINT [FK_user_sessions_users] FOREIGN KEY (user_id) REFERENCES [$(TABLE_USERS)] (user_id) ON DELETE NO ACTION ON UPDATE NO ACTION,
+        CONSTRAINT [FK_user_sessions_$(TABLE_CPP_SERVER)] FOREIGN KEY (cpp_server_id) REFERENCES [$(TABLE_CPP_SERVER)] (server_id) ON DELETE NO ACTION ON UPDATE NO ACTION
     );
 END
 ELSE
@@ -278,12 +278,12 @@ BEGIN
         CONSTRAINT [PK_$(TABLE_CANVAS_INFO)] PRIMARY KEY CLUSTERED (canvas_id),
         CONSTRAINT [FK_$(TABLE_CANVAS_INFO)_$(TABLE_REDIS_SERVER)] FOREIGN KEY (redis_id)
             REFERENCES [$(TABLE_REDIS_SERVER)] (redis_id)
-            ON DELETE SET NULL
-            ON UPDATE CASCADE,
+            ON DELETE NO ACTION
+            ON UPDATE NO ACTION,
         CONSTRAINT [FK_$(TABLE_CANVAS_INFO)_$(TABLE_CPP_SERVER)] FOREIGN KEY (cpp_server_id)
             REFERENCES [$(TABLE_CPP_SERVER)] (server_id)
-            ON DELETE SET NULL
-            ON UPDATE CASCADE
+            ON DELETE NO ACTION
+            ON UPDATE NO ACTION
     );
 END
 ELSE
@@ -338,7 +338,7 @@ BEGIN
     BEGIN
         ALTER TABLE [$(TABLE_CANVAS_INFO)] ADD CONSTRAINT [FK_$(TABLE_CANVAS_INFO)_$(TABLE_REDIS_SERVER)]
             FOREIGN KEY (redis_id) REFERENCES [$(TABLE_REDIS_SERVER)] (redis_id)
-            ON DELETE SET NULL ON UPDATE CASCADE;
+            ON DELETE NO ACTION ON UPDATE NO ACTION;
     END;
 
     -- 기존 복합 자연키 FK → 대리키 FK 마이그레이션 (server_ip/port → cpp_server_id)
@@ -370,7 +370,7 @@ BEGIN
     BEGIN
         ALTER TABLE [$(TABLE_CANVAS_INFO)] ADD CONSTRAINT [FK_$(TABLE_CANVAS_INFO)_$(TABLE_CPP_SERVER)]
             FOREIGN KEY (cpp_server_id) REFERENCES [$(TABLE_CPP_SERVER)] (server_id)
-            ON DELETE SET NULL ON UPDATE CASCADE;
+            ON DELETE NO ACTION ON UPDATE NO ACTION;
     END;
 END
 GO
