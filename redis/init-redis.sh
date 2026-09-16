@@ -15,7 +15,7 @@ elif [ -f .env ]; then
   export $(grep -v '^#' .env | xargs)
 fi
 
-REDIS_BIND_IP="${REDIS_BIND_IP:-0.0.0.0}"
+REDIS_BIND_IP="${REDIS_BIND_IP:-127.0.0.1}"
 REDIS_EXTERNAL_IP="${REDIS_EXTERNAL_IP:-127.0.0.1}"
 REDIS_EXTERNAL_PORT="${REDIS_EXTERNAL_PORT:-${REDIS_PORT:-6379}}"
 

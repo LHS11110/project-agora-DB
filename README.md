@@ -53,13 +53,13 @@ cp mssql/.env.example mssql/.env
 
 | 서비스 | 기본 컨테이너 내부 포트 | 호스트 노출 포트 (기본값) | 호스트 바인딩 IP 설정 | MS SQL 등록 / 외부 접속 IP | 주요 계정 및 기본 DB / 인덱스 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **MS SQL** | `1433` | `1433` | `MSSQL_EXTERNAL_IP` (`0.0.0.0`) | - | `sa` (관리자)<br>`agora_user` (일반 사용자, `dbo` 권한)<br>DB: `agora_db` |
+| **MS SQL** | `1433` | `1433` | `MSSQL_EXTERNAL_IP` (`127.0.0.1`) | - | `sa` (관리자)<br>`agora_user` (일반 사용자, `dbo` 권한)<br>DB: `agora_db` |
 | **Elasticsearch** | `9200` | `9200` | `ES_EXTERNAL_IP` (`127.0.0.1`) | - | `elastic` (슈퍼유저)<br>`agora_user` (인덱스 전용 계정)<br>Index: `canvas` |
-| **Redis Stack** | `6379`<br>`8001` (Insight) | `6379`<br>`8001` | `REDIS_BIND_IP` (`0.0.0.0`) | `REDIS_EXTERNAL_IP` (`127.0.0.1`) | `default` (관리자 암호 보호)<br>`agora_user` (ACL 계정, `canvas:*` 권한)<br>Index: `idx:canvas` |
+| **Redis Stack** | `6379`<br>`8001` (Insight) | `6379`<br>`8001` | `REDIS_BIND_IP` (`127.0.0.1`) | `REDIS_EXTERNAL_IP` (`127.0.0.1`) | `default` (관리자 암호 보호)<br>`agora_user` (ACL 계정, `canvas:*` 권한)<br>Index: `idx:canvas` |
 
 > [!TIP]
 > - **바인딩 IP vs MS SQL 등록 IP 분리**: AWS EC2 등 클라우드/NAT 환경에서는 호스트 OS에 공인 IP가 직접 바인딩되지 않아 공인 IP로 포트 바인딩 시 `cannot assign requested address` 에러가 발생합니다.
-> - 따라서 Redis의 Docker 호스트 포트 수신 바인딩은 `REDIS_BIND_IP=0.0.0.0`으로 설정하고, MS SQL(`redis_server` 테이블)에 등록하여 외부 클라이언트가 찾아갈 공인 IP는 `REDIS_EXTERNAL_IP`로 명확하게 역할을 나누어 설정합니다.
+> - 따라서 Redis의 Docker 호스트 포트 수신 바인딩은 `REDIS_BIND_IP=127.0.0.1`으로 설정하고, MS SQL(`redis_server` 테이블)에 등록하여 외부 클라이언트가 찾아갈 공인 IP는 `REDIS_EXTERNAL_IP`로 명확하게 역할을 나누어 설정합니다.
 
 ---
 
