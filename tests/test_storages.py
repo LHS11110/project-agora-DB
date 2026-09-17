@@ -124,7 +124,7 @@ def test_mssql():
         test_user_cpp_port = "7000"
         test_user_cpp_ws_port = "7001"
         run_query(f"INSERT INTO [{MSSQL_TABLE_CPP_SERVER}] (server_ip, server_port, ws_port, is_activated) VALUES ('{test_user_cpp_ip}', '{test_user_cpp_port}', '{test_user_cpp_ws_port}', 1);")
-        run_query(f"INSERT INTO [{MSSQL_TABLE_USERS}] (email, password_hash, nickname, role, status) VALUES ('{test_email}', 'dummy_hash', N'PyTester', 'ROLE_USER', 'ACTIVE');")
+        run_query(f"INSERT INTO [{MSSQL_TABLE_USERS}] (email, password_hash, nickname, hash_value, role, status) VALUES ('{test_email}', 'dummy_hash', N'PyTester', 1234, 'ROLE_USER', 'ACTIVE');")
         run_query(f"INSERT INTO [user_sessions] (user_id, is_accessed, cpp_server_id) VALUES ((SELECT user_id FROM [{MSSQL_TABLE_USERS}] WHERE email = '{test_email}'), 1, (SELECT server_id FROM [{MSSQL_TABLE_CPP_SERVER}] WHERE server_ip = '{test_user_cpp_ip}' AND server_port = '{test_user_cpp_port}'));")
         u_ins = run_query(f"SELECT COUNT(*) FROM [{MSSQL_TABLE_USERS}] WHERE email = '{test_email}';")
         record_test(f"회원 테이블({MSSQL_TABLE_USERS}) 및 user_sessions 데이터 삽입 [Create] 성공", u_ins == "1", u_ins)
