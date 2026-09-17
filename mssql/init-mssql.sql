@@ -122,7 +122,7 @@ BEGIN
         email                NVARCHAR(255)     NOT NULL,              -- 넌클러스터드 유니크 인덱스 UQ_Users_Email
         password_hash        NVARCHAR(255)     NULL,                  -- 비밀번호 해시 (NULL 허용)
         nickname             NVARCHAR(100)     NOT NULL,              -- 닉네임 (중복 가능, 공백 불가)
-        hash_value           INT               NOT NULL DEFAULT 0,    -- 닉네임 유일성 식별용 해시값
+        tag_number           INT               NOT NULL DEFAULT 0,    -- 닉네임 유일성 식별용 정수값
         role                 NVARCHAR(10)      NOT NULL DEFAULT 'ROLE_USER', -- 기본 ROLE_USER (관리자 ROLE_ADMIN)
         status               NVARCHAR(20)      NOT NULL DEFAULT 'ACTIVE',    -- ACTIVE, SUSPENDED, WITHDRAWN
         oauth_provider       NVARCHAR(50)      NULL,                  -- OAuth 제공자 (NULL 가능)
@@ -132,7 +132,7 @@ BEGIN
         updated_at           DATETIME2         NOT NULL DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_$(TABLE_USERS)] PRIMARY KEY CLUSTERED (user_id),
         CONSTRAINT [UQ_Users_Email] UNIQUE NONCLUSTERED (email),
-        CONSTRAINT [UQ_Users_Nickname_Hash] UNIQUE NONCLUSTERED (nickname, hash_value),
+        CONSTRAINT [UQ_Users_Nickname_TagNumber] UNIQUE NONCLUSTERED (nickname, tag_number),
         CONSTRAINT [CK_$(TABLE_USERS)_Status] CHECK (status IN ('ACTIVE', 'SUSPENDED', 'WITHDRAWN')),
         CONSTRAINT [CK_$(TABLE_USERS)_Role] CHECK (role IN ('ROLE_USER', 'ROLE_ADMIN')),
         CONSTRAINT [CK_$(TABLE_USERS)_Nickname] CHECK (LEN(LTRIM(RTRIM(nickname))) > 0),
@@ -159,14 +159,14 @@ BEGIN
         ALTER TABLE [$(TABLE_USERS)] DROP COLUMN last_login_at;
     END;
 
-    -- hash_value 컬럼 및 고유 제약조건 추가
-    IF COL_LENGTH('$(TABLE_USERS)', 'hash_value') IS NULL
+    -- tag_number 컬럼 및 고유 제약조건 추가
+    IF COL_LENGTH('$(TABLE_USERS)', 'tag_number') IS NULL
     BEGIN
-        ALTER TABLE [$(TABLE_USERS)] ADD hash_value INT NOT NULL DEFAULT 0;
+        ALTER TABLE [$(TABLE_USERS)] ADD tag_number INT NOT NULL DEFAULT 0;
     END;
-    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UQ_Users_Nickname_Hash' AND object_id = OBJECT_ID('$(TABLE_USERS)'))
+    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UQ_Users_Nickname_TagNumber' AND object_id = OBJECT_ID('$(TABLE_USERS)'))
     BEGIN
-        ALTER TABLE [$(TABLE_USERS)] ADD CONSTRAINT [UQ_Users_Nickname_Hash] UNIQUE NONCLUSTERED (nickname, hash_value);
+        ALTER TABLE [$(TABLE_USERS)] ADD CONSTRAINT [UQ_Users_Nickname_TagNumber] UNIQUE NONCLUSTERED (nickname, tag_number);
     END;
 
     -- 인증 무결성 제약조건 추가

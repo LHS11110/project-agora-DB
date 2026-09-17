@@ -154,7 +154,7 @@ docker exec -i agora-mssql /opt/mssql-tools18/bin/sqlcmd \
   - 이메일 인증을 통해 유저당 계정 소유 개수 제한
 - `password_hash`: `NVARCHAR(255) NULL`
 - `nickname`: `NVARCHAR(100) NOT NULL` (중복 가능)
-- `hash_value`: `INT NOT NULL DEFAULT 0` (닉네임 식별 해시값)
+- `tag_number`: `INT NOT NULL DEFAULT 0` (닉네임 식별 정수값)
 - `role`: `NVARCHAR(10) NOT NULL DEFAULT 'ROLE_USER'` (CHECK 제약 조건: `ROLE_USER`, `ROLE_ADMIN`)
 - `status`: `NVARCHAR(20) NOT NULL DEFAULT 'ACTIVE'` (CHECK 제약 조건: `ACTIVE`, `SUSPENDED`, `WITHDRAWN`)
 - `oauth_provider`: `NVARCHAR(50) NULL`
@@ -167,7 +167,7 @@ docker exec -i agora-mssql /opt/mssql-tools18/bin/sqlcmd \
 - **인덱스**:
   - `IX_Users_OAuth` : `(oauth_provider, oauth_id)` (조건부 필터 인덱스: `WHERE oauth_provider IS NOT NULL`)
   - `IX_Users_Nickname` : `(nickname)` (넌클러스터드 인덱스)
-  - `UQ_Users_Nickname_Hash` : `(nickname, hash_value)` (넌클러스터드 유니크 인덱스)
+  - `UQ_Users_Nickname_TagNumber` : `(nickname, tag_number)` (넌클러스터드 유니크 인덱스)
 
 #### `user_sessions` (회원 접속 세션 테이블)
 - `user_id`: `INT NOT NULL` (PK 클러스터드 인덱스, FK: `users(user_id)` - `ON DELETE/UPDATE NO ACTION`)
