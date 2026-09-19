@@ -172,6 +172,7 @@ docker exec -i agora-mssql /opt/mssql-tools18/bin/sqlcmd \
 #### `user_sessions` (회원 접속 세션 테이블)
 - `user_id`: `INT NOT NULL` (PK 클러스터드 인덱스, FK: `users(user_id)` - `ON DELETE/UPDATE NO ACTION`)
 - `cpp_server_id`: `INT NULL` (현재 접속 C++ 실시간 서버, FK: `cpp_server(server_id)` - `ON DELETE/UPDATE NO ACTION`)
+- `canvas_id`: `INT NULL` (현재 접속 중인 캔버스, FK: `canvas_info(canvas_id)` - `ON DELETE/UPDATE NO ACTION`)
 - `is_accessed`: `BIT NOT NULL DEFAULT 0`
 - `last_login_at`: `DATETIME2 NULL`
 - `updated_at`: `DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()`

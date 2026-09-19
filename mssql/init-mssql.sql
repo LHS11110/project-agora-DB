@@ -252,12 +252,14 @@ BEGIN
     CREATE TABLE [user_sessions] (
         user_id              INT               NOT NULL,
         cpp_server_id        INT               NULL,
+    canvas_id            INT               NULL,
         is_accessed          BIT               NOT NULL DEFAULT 0,
         last_login_at        DATETIME2         NULL,
         updated_at           DATETIME2         NOT NULL DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_user_sessions] PRIMARY KEY CLUSTERED (user_id),
         CONSTRAINT [FK_user_sessions_users] FOREIGN KEY (user_id) REFERENCES [$(TABLE_USERS)] (user_id) ON DELETE NO ACTION ON UPDATE NO ACTION,
-        CONSTRAINT [FK_user_sessions_$(TABLE_CPP_SERVER)] FOREIGN KEY (cpp_server_id) REFERENCES [$(TABLE_CPP_SERVER)] (server_id) ON DELETE NO ACTION ON UPDATE NO ACTION
+        CONSTRAINT [FK_user_sessions_$(TABLE_CPP_SERVER)] FOREIGN KEY (cpp_server_id) REFERENCES [$(TABLE_CPP_SERVER)] (server_id) ON DELETE NO ACTION ON UPDATE NO ACTION,
+    CONSTRAINT [FK_user_sessions_canvas_info] FOREIGN KEY (canvas_id) REFERENCES [canvas_info] (canvas_id) ON DELETE NO ACTION ON UPDATE NO ACTION
     );
 END
 ELSE
@@ -265,6 +267,11 @@ BEGIN
     IF COL_LENGTH('user_sessions', 'is_accessed') IS NULL
     BEGIN
         ALTER TABLE [user_sessions] ADD is_accessed BIT NOT NULL DEFAULT 0;
+    END;
+    IF COL_LENGTH('user_sessions', 'canvas_id') IS NULL
+    BEGIN
+        ALTER TABLE [user_sessions] ADD canvas_id INT NULL;
+        ALTER TABLE [user_sessions] ADD CONSTRAINT [FK_user_sessions_canvas_info] FOREIGN KEY (canvas_id) REFERENCES [canvas_info] (canvas_id) ON DELETE NO ACTION ON UPDATE NO ACTION;
     END;
 END
 GO
