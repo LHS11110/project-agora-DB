@@ -137,6 +137,7 @@ def test_mssql():
         u_upd = run_query(f"SELECT status FROM [{MSSQL_TABLE_USERS}] WHERE email = '{test_email}';")
         record_test(f"회원 테이블({MSSQL_TABLE_USERS}) 및 user_sessions 데이터 수정 [Update] 성공", u_upd == "SUSPENDED", u_upd)
 
+        run_query(f"DELETE FROM [user_sessions] WHERE user_id = (SELECT user_id FROM [{MSSQL_TABLE_USERS}] WHERE email = '{test_email}');")
         run_query(f"DELETE FROM [{MSSQL_TABLE_USERS}] WHERE email = '{test_email}';")
         run_query(f"DELETE FROM [{MSSQL_TABLE_CPP_SERVER}] WHERE server_ip = '{test_user_cpp_ip}' AND server_port = '{test_user_cpp_port}';")
         u_del = run_query(f"SELECT COUNT(*) FROM [{MSSQL_TABLE_USERS}] WHERE email = '{test_email}';")

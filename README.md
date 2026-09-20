@@ -15,23 +15,33 @@
 ```
 project-agora-DB/
 ├── docker-compose.yml              # 전체 서비스 일괄 실행 Compose (include 방식)
+├── search-storages.sh              # 전체 저장소 데이터 통합 검색/조회 스크립트 (Bash)
+├── search_storages.py              # 전체 저장소 데이터 통합 검색/조회 스크립트 (Python)
+├── clean-storages.sh               # 저장소 데이터 일괄 삭제 스크립트 (Bash)
+├── clean_storages.py               # 저장소 데이터 일괄 삭제 스크립트 (Python)
 ├── elasticsearch/                  # Elasticsearch 서비스 (8.15.0)
 │   ├── docker-compose.yml
 │   ├── .env.example
 │   ├── .env
-│   └── init-elasticsearch.sh      # 역할, 일반 사용자 생성 및 인덱스 매핑 설정
+│   ├── init-elasticsearch.sh      # 역할, 일반 사용자 생성 및 인덱스 매핑 설정
+│   ├── search-elasticsearch.sh    # 도큐먼트 조회 및 전문 검색 스크립트
+│   └── clean-elasticsearch.sh     # 인덱스 도큐먼트 단독 삭제 스크립트
 ├── redis/                          # Redis Stack 서비스 (RedisJSON + RediSearch)
 │   ├── docker-compose.yml
 │   ├── .env.example
 │   ├── .env
 │   ├── init-redis.sh               # ACL 사용자, RediSearch 인덱스 생성 & MS SQL 자동 등록
-│   └── register-to-mssql.sh        # Redis 접속 정보를 MS SQL에 단독 등록
+│   ├── register-to-mssql.sh        # Redis 접속 정보를 MS SQL에 단독 등록
+│   ├── search-redis.sh             # RedisJSON 키 및 데이터 조회/검색 스크립트
+│   └── clean-redis.sh              # Redis 데이터 단독 삭제 스크립트
 ├── mssql/                          # MS SQL Server 2022 서비스
 │   ├── docker-compose.yml
 │   ├── .env.example
 │   ├── .env
 │   ├── init-mssql.sh               # DB, 계정(dbo) 생성 및 테이블 스키마 초기화
-│   └── init-mssql.sql              # DDL 및 인덱스/제약조건 정의 SQL
+│   ├── init-mssql.sql              # DDL 및 인덱스/제약조건 정의 SQL
+│   ├── search-mssql.sh             # 테이블 데이터 조회 및 검색 스크립트
+│   └── clean-mssql.sh              # 테이블 데이터 단독 삭제 스크립트
 ├── tests/                          # 일반 사용자 권한 및 CRUD 통합 테스트
 │   ├── test-storages.sh            # Bash 기반 29개 통합 테스트 스위트
 │   └── test_storages.py            # C++ 기반 29개 통합 테스트 스위트
@@ -287,4 +297,116 @@ python3 tests/test_storages.py
 | | | 27 | RedisJSON [Update] | `JSON.SET canvas:test-py $["admin-user-id"] 2000` 필드 수정 확인 |
 | | | 28 | RedisJSON [Delete] | `DEL canvas:test-py` 삭제 확인 (클린업) |
 | | | 29 | 보안 격리 [Scope] | 허용되지 않은 키(`other:unauthorized`) 쓰기 시 `NOPERM` 차단 확인 |
+
+---
+
+## 🔍 5. 저장소 데이터 조회 및 검색 (Data Search & Inspection)
+
+각 저장소에 적재된 데이터의 상태를 확인하거나 키워드로 검색할 수 있는 도구를 제공합니다. 전체 저장소를 한 번에 조회하거나, 각 저장소 폴더에 분리된 전용 스크립트로 개별 조회할 수 있습니다.
+
+### 방법 A: 전체 저장소 통합 검색 (프로젝트 루트)
+모든 저장소(MS SQL, Elasticsearch, Redis)의 데이터를 한 번에 대시보드 형태로 출력하거나 공통 키워드로 검색합니다.
+
+```bash
+# 1. 전체 저장소 데이터 대시보드 일괄 출력
+./search-storages.sh
+# (또는 Python)
+python3 search_storages.py
+
+# 2. 전 저장소 대상 키워드 검색
+./search-storages.sh -q "검색어"
+# (또는 Python)
+python3 search_storages.py -q "검색어"
+```
+
+### 방법 B: 저장소별 개별 폴더 분리 검색
+각 데이터베이스 디렉터리(`mssql/`, `elasticsearch/`, `redis/`) 내에 단독 실행 가능한 스크립트가 분리되어 있습니다.
+
+#### (1) MS SQL Server (`mssql/search-mssql.sh`)
+```bash
+# 전체 테이블(users, user_sessions, canvas_info, redis_server, cpp_server) 레코드 목록 출력
+./mssql/search-mssql.sh
+
+# 특정 테이블만 조회
+./mssql/search-mssql.sh -t users
+
+# 특정 키워드(이메일, 닉네임, IP 등) 검색
+./mssql/search-mssql.sh -q "admin@agora.com"
+```
+
+#### (2) Elasticsearch (`elasticsearch/search-elasticsearch.sh`)
+```bash
+# canvas 인덱스 전체 도큐먼트 목록 출력
+./elasticsearch/search-elasticsearch.sh
+
+# canvas-name, description 대상 전문 검색
+./elasticsearch/search-elasticsearch.sh -q "whiteboard"
+
+# 특정 도큐먼트 ID 단건 상세 조회
+./elasticsearch/search-elasticsearch.sh -i "doc-101"
+```
+
+#### (3) Redis Stack (`redis/search-redis.sh`)
+```bash
+# canvas:* 네임스페이스 키 및 JSON 데이터 전체 목록 출력
+./redis/search-redis.sh
+
+# RediSearch 인덱스(idx:canvas) 전문 검색
+./redis/search-redis.sh -q "Alpha"
+
+# 특정 단일 키 상세 조회
+./redis/search-redis.sh -k "canvas:101"
+```
+
+---
+
+## 🧹 6. 저장소 데이터 삭제 및 초기화 (Data Cleanup)
+
+개발 및 테스트 진행 중 저장소에 적재된 데이터를 테이블 스키마, 외래키 제약조건, RediSearch/Elasticsearch 인덱스 매핑 손상 없이 **안전하게 초기화**할 수 있습니다.
+
+### 동작 원리
+1. **MS SQL Server**:
+   - 외래키 참조 순서(`user_sessions` → `canvas_info` → `users` → `cpp_server` → `redis_server`)를 준수하여 트랜잭션 내에서 데이터를 일괄 삭제합니다.
+   - 각 테이블의 `IDENTITY` 자동 증가 시드를 `0`으로 재설정(`DBCC CHECKIDENT(..., RESEED, 0)`)하여 신규 데이터 생성 시 ID가 `1`부터 다시 시작되도록 보장합니다.
+   - 기본적으로 현재 실행 중인 Redis 인스턴스 정보(`redis/.env` 기준)를 `redis_server` 테이블에 자동 재등록하여 시스템을 즉시 구동 가능한 상태로 유지합니다.
+2. **Elasticsearch**:
+   - 인덱스 삭제(`DELETE /canvas`) 대신 `_delete_by_query` (`match_all`)를 사용하여 사전에 설정된 필드 매핑, 동적 템플릿, 사용자 권한을 100% 보존하면서 저장된 도큐먼트만 고속으로 일괄 삭제합니다.
+3. **Redis Stack**:
+   - `FLUSHDB` 시 RediSearch 인덱스 정의(`idx:canvas`)가 드롭되는 문제를 방지하기 위해, 네임스페이스(`canvas:*`) 키만 원자적(Lua 스크립트)으로 안전 삭제합니다.
+   - 인덱스 메타데이터 부재 시 자동으로 `FT.CREATE`를 재호출하는 자가 복구 메커니즘이 내장되어 있습니다.
+
+### 실행 방법
+
+#### 방법 A: 전체 저장소 일괄 삭제 (프로젝트 루트)
+```bash
+# 1. 대화형 실행 (실행 전 확인 프롬프트 노출)
+./clean-storages.sh
+
+# 2. 비대화형 강제 실행 (CI/CD 또는 자동화 스크립트용)
+./clean-storages.sh -y
+
+# 3. Python 스크립트 실행
+python3 clean_storages.py -y
+```
+
+#### 방법 B: 저장소별 개별 폴더 분리 삭제
+각 스토리지 디렉터리에서 원하는 DB만 선택적으로 초기화할 수 있습니다:
+
+```bash
+# 1. MS SQL 테이블 데이터만 단독 초기화
+./mssql/clean-mssql.sh -y
+
+# 2. Elasticsearch 인덱스 도큐먼트만 단독 초기화
+./elasticsearch/clean-elasticsearch.sh -y
+
+# 3. Redis Stack 캔버스 캐시 데이터만 단독 초기화
+./redis/clean-redis.sh -y
+```
+
+### ⚙️ 옵션 안내
+- `-y`, `--yes`, `--force`: 삭제 확인 프롬프트를 생략하고 즉시 삭제를 진행합니다.
+- `--no-re-register`: MS SQL 초기화 후 Redis 서버 엔드포인트 자동 재등록을 건너뜁니다.
+- `-h`, `--help`: 도움말을 출력합니다.
+
+
 

@@ -273,6 +273,10 @@ BEGIN
         ALTER TABLE [user_sessions] ADD canvas_id INT NULL;
         ALTER TABLE [user_sessions] ADD CONSTRAINT [FK_user_sessions_canvas_info] FOREIGN KEY (canvas_id) REFERENCES [canvas_info] (canvas_id) ON DELETE NO ACTION ON UPDATE NO ACTION;
     END;
+    IF NOT EXISTS (SELECT 1 FROM sys.default_constraints WHERE parent_object_id = OBJECT_ID('user_sessions') AND parent_column_id = COLUMNPROPERTY(OBJECT_ID('user_sessions'), 'updated_at', 'ColumnId'))
+    BEGIN
+        ALTER TABLE [user_sessions] ADD CONSTRAINT [DF_user_sessions_updated_at] DEFAULT SYSUTCDATETIME() FOR updated_at;
+    END;
 END
 GO
 

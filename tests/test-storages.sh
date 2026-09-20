@@ -115,7 +115,7 @@ fi
 USER_EMAIL="test_crud_user@agora.com"
 TEST_USER_CPP_IP="127.0.0.88"
 TEST_USER_CPP_PORT="7000"
-MSSQL_USER_INS=$(run_mssql_query "SET NOCOUNT ON; INSERT INTO [$MSSQL_TABLE_CPP_SERVER] (server_ip, server_port, is_activated) VALUES ('$TEST_USER_CPP_IP', '$TEST_USER_CPP_PORT', 1); INSERT INTO [$MSSQL_TABLE_USERS] (email, password_hash, nickname, tag_number, role, status) VALUES ('$USER_EMAIL', 'dummy_hash', N'AgoraTester', 1234, 'ROLE_USER', 'ACTIVE'); INSERT INTO [user_sessions] (user_id, is_accessed, cpp_server_id) VALUES ((SELECT user_id FROM [$MSSQL_TABLE_USERS] WHERE email = '$USER_EMAIL'), 1, (SELECT server_id FROM [$MSSQL_TABLE_CPP_SERVER] WHERE server_ip = '$TEST_USER_CPP_IP' AND server_port = '$TEST_USER_CPP_PORT')); SELECT COUNT(*) FROM [$MSSQL_TABLE_USERS] WHERE email = '$USER_EMAIL';" | tr -dc '0-9')
+MSSQL_USER_INS=$(run_mssql_query "SET NOCOUNT ON; INSERT INTO [$MSSQL_TABLE_CPP_SERVER] (server_ip, server_port, ws_port, is_activated) VALUES ('$TEST_USER_CPP_IP', '$TEST_USER_CPP_PORT', '7001', 1); INSERT INTO [$MSSQL_TABLE_USERS] (email, password_hash, nickname, tag_number, role, status) VALUES ('$USER_EMAIL', 'dummy_hash', N'AgoraTester', 1234, 'ROLE_USER', 'ACTIVE'); INSERT INTO [user_sessions] (user_id, is_accessed, cpp_server_id) VALUES ((SELECT user_id FROM [$MSSQL_TABLE_USERS] WHERE email = '$USER_EMAIL'), 1, (SELECT server_id FROM [$MSSQL_TABLE_CPP_SERVER] WHERE server_ip = '$TEST_USER_CPP_IP' AND server_port = '$TEST_USER_CPP_PORT')); SELECT COUNT(*) FROM [$MSSQL_TABLE_USERS] WHERE email = '$USER_EMAIL';" | tr -dc '0-9')
 if [ "$MSSQL_USER_INS" = "1" ]; then
   log_test_pass "회원 테이블($MSSQL_TABLE_USERS) 및 user_sessions 데이터 삽입 [Create] 성공"
 else
@@ -136,7 +136,7 @@ else
   log_test_fail "회원 테이블 데이터 수정 실패" "$MSSQL_USER_UPD"
 fi
 
-MSSQL_USER_DEL=$(run_mssql_query "SET NOCOUNT ON; DELETE FROM [$MSSQL_TABLE_USERS] WHERE email = '$USER_EMAIL'; DELETE FROM [$MSSQL_TABLE_CPP_SERVER] WHERE server_ip = '$TEST_USER_CPP_IP' AND server_port = '$TEST_USER_CPP_PORT'; SELECT COUNT(*) FROM [$MSSQL_TABLE_USERS] WHERE email = '$USER_EMAIL';" | tr -dc '0-9')
+MSSQL_USER_DEL=$(run_mssql_query "SET NOCOUNT ON; DELETE FROM [user_sessions] WHERE user_id = (SELECT user_id FROM [$MSSQL_TABLE_USERS] WHERE email = '$USER_EMAIL'); DELETE FROM [$MSSQL_TABLE_USERS] WHERE email = '$USER_EMAIL'; DELETE FROM [$MSSQL_TABLE_CPP_SERVER] WHERE server_ip = '$TEST_USER_CPP_IP' AND server_port = '$TEST_USER_CPP_PORT'; SELECT COUNT(*) FROM [$MSSQL_TABLE_USERS] WHERE email = '$USER_EMAIL';" | tr -dc '0-9')
 if [ "$MSSQL_USER_DEL" = "0" ]; then
   log_test_pass "회원 테이블($MSSQL_TABLE_USERS) 데이터 삭제 [Delete] 성공 (클린업 완료)"
 else
