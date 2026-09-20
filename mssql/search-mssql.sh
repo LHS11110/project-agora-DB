@@ -116,8 +116,16 @@ display_table_data() {
 
   echo -e "${YELLOW}▶ 테이블: [$tbl]${NC}"
   local count_sql="SET NOCOUNT ON; SELECT COUNT(*) FROM [$tbl];"
+  local raw_cnt
+  raw_cnt=$(run_query "$count_sql" 2>&1)
+  if echo "$raw_cnt" | grep -iq "Invalid object name"; then
+    echo -e "  ${RED}(테이블 [$tbl] 이 데이터베이스에 존재하지 않습니다)${NC}\n"
+    return
+  fi
+
   local cnt
-  cnt=$(run_query "$count_sql" | grep -v '^\s*$' | tail -n 1 | tr -dc '0-9' || echo "0")
+  cnt=$(echo "$raw_cnt" | grep -v '^\s*$' | tail -n 1 | tr -dc '0-9')
+  cnt="${cnt:-0}"
   echo -e "  총 레코드 수: ${BOLD}$cnt${NC} 건"
 
   if [ "$cnt" -eq 0 ]; then

@@ -246,40 +246,6 @@ BEGIN
 END
 GO
 
--- 8-2. 세션 테이블 (PK: user_id)
-IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'user_sessions')
-BEGIN
-    CREATE TABLE [user_sessions] (
-        user_id              INT               NOT NULL,
-        cpp_server_id        INT               NULL,
-    canvas_id            INT               NULL,
-        is_accessed          BIT               NOT NULL DEFAULT 0,
-        last_login_at        DATETIME2         NULL,
-        updated_at           DATETIME2         NOT NULL DEFAULT SYSUTCDATETIME(),
-        CONSTRAINT [PK_user_sessions] PRIMARY KEY CLUSTERED (user_id),
-        CONSTRAINT [FK_user_sessions_users] FOREIGN KEY (user_id) REFERENCES [$(TABLE_USERS)] (user_id) ON DELETE NO ACTION ON UPDATE NO ACTION,
-        CONSTRAINT [FK_user_sessions_$(TABLE_CPP_SERVER)] FOREIGN KEY (cpp_server_id) REFERENCES [$(TABLE_CPP_SERVER)] (server_id) ON DELETE NO ACTION ON UPDATE NO ACTION,
-    CONSTRAINT [FK_user_sessions_canvas_info] FOREIGN KEY (canvas_id) REFERENCES [canvas_info] (canvas_id) ON DELETE NO ACTION ON UPDATE NO ACTION
-    );
-END
-ELSE
-BEGIN
-    IF COL_LENGTH('user_sessions', 'is_accessed') IS NULL
-    BEGIN
-        ALTER TABLE [user_sessions] ADD is_accessed BIT NOT NULL DEFAULT 0;
-    END;
-    IF COL_LENGTH('user_sessions', 'canvas_id') IS NULL
-    BEGIN
-        ALTER TABLE [user_sessions] ADD canvas_id INT NULL;
-        ALTER TABLE [user_sessions] ADD CONSTRAINT [FK_user_sessions_canvas_info] FOREIGN KEY (canvas_id) REFERENCES [canvas_info] (canvas_id) ON DELETE NO ACTION ON UPDATE NO ACTION;
-    END;
-    IF NOT EXISTS (SELECT 1 FROM sys.default_constraints WHERE parent_object_id = OBJECT_ID('user_sessions') AND parent_column_id = COLUMNPROPERTY(OBJECT_ID('user_sessions'), 'updated_at', 'ColumnId'))
-    BEGIN
-        ALTER TABLE [user_sessions] ADD CONSTRAINT [DF_user_sessions_updated_at] DEFAULT SYSUTCDATETIME() FOR updated_at;
-    END;
-END
-GO
-
 -- 9. 캔버스 정보 테이블 (캔버스 서버 할당 및 상태 관리, PK: canvas_id, FK: redis_server(redis_id), FK: cpp_server(server_id))
 -- 기존 canvas_cache 테이블이 존재하고 신규 테이블명과 다를 경우 처리
 IF EXISTS (SELECT 1 FROM sys.tables WHERE name = 'canvas_cache')
@@ -404,7 +370,41 @@ BEGIN
 END
 GO
 
--- 10. 데이터베이스 소유자 및 생성된 테이블 목록 확인
+-- 10. 세션 테이블 (PK: user_id, FK: users(user_id), FK: cpp_server(server_id), FK: canvas_info(canvas_id))
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'user_sessions')
+BEGIN
+    CREATE TABLE [user_sessions] (
+        user_id              INT               NOT NULL,
+        cpp_server_id        INT               NULL,
+        canvas_id            INT               NULL,
+        is_accessed          BIT               NOT NULL DEFAULT 0,
+        last_login_at        DATETIME2         NULL,
+        updated_at           DATETIME2         NOT NULL DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT [PK_user_sessions] PRIMARY KEY CLUSTERED (user_id),
+        CONSTRAINT [FK_user_sessions_users] FOREIGN KEY (user_id) REFERENCES [$(TABLE_USERS)] (user_id) ON DELETE NO ACTION ON UPDATE NO ACTION,
+        CONSTRAINT [FK_user_sessions_$(TABLE_CPP_SERVER)] FOREIGN KEY (cpp_server_id) REFERENCES [$(TABLE_CPP_SERVER)] (server_id) ON DELETE NO ACTION ON UPDATE NO ACTION,
+        CONSTRAINT [FK_user_sessions_canvas_info] FOREIGN KEY (canvas_id) REFERENCES [$(TABLE_CANVAS_INFO)] (canvas_id) ON DELETE NO ACTION ON UPDATE NO ACTION
+    );
+END
+ELSE
+BEGIN
+    IF COL_LENGTH('user_sessions', 'is_accessed') IS NULL
+    BEGIN
+        ALTER TABLE [user_sessions] ADD is_accessed BIT NOT NULL DEFAULT 0;
+    END;
+    IF COL_LENGTH('user_sessions', 'canvas_id') IS NULL
+    BEGIN
+        ALTER TABLE [user_sessions] ADD canvas_id INT NULL;
+        ALTER TABLE [user_sessions] ADD CONSTRAINT [FK_user_sessions_canvas_info] FOREIGN KEY (canvas_id) REFERENCES [$(TABLE_CANVAS_INFO)] (canvas_id) ON DELETE NO ACTION ON UPDATE NO ACTION;
+    END;
+    IF NOT EXISTS (SELECT 1 FROM sys.default_constraints WHERE parent_object_id = OBJECT_ID('user_sessions') AND parent_column_id = COLUMNPROPERTY(OBJECT_ID('user_sessions'), 'updated_at', 'ColumnId'))
+    BEGIN
+        ALTER TABLE [user_sessions] ADD CONSTRAINT [DF_user_sessions_updated_at] DEFAULT SYSUTCDATETIME() FOR updated_at;
+    END;
+END
+GO
+
+-- 11. 데이터베이스 소유자 및 생성된 테이블 목록 확인
 SELECT name AS database_name, SUSER_SNAME(owner_sid) AS owner_name FROM sys.databases WHERE name = '$(DB_NAME)';
 SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE';
 GO
