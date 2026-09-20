@@ -93,12 +93,15 @@ IF NOT EXISTS (
     WHERE redis_ip = '$REDIS_IP' AND redis_port = '$REDIS_EXT_PORT'
 )
 BEGIN
-    INSERT INTO [$MSSQL_TABLE] (redis_ip, redis_port)
-    VALUES ('$REDIS_IP', '$REDIS_EXT_PORT');
+    INSERT INTO [$MSSQL_TABLE] (redis_ip, redis_port, is_activated)
+    VALUES ('$REDIS_IP', '$REDIS_EXT_PORT', 1);
     SELECT 'SUCCESS_INSERTED' AS [result_status];
 END
 ELSE
 BEGIN
+    UPDATE [$MSSQL_TABLE]
+    SET is_activated = 1
+    WHERE redis_ip = '$REDIS_IP' AND redis_port = '$REDIS_EXT_PORT';
     SELECT 'ALREADY_EXISTS' AS [result_status];
 END
 EOF
