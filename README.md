@@ -44,7 +44,7 @@ project-agora-DB/
 │   └── clean-mssql.sh              # 테이블 데이터 단독 삭제 스크립트
 ├── tests/                          # 일반 사용자 권한 및 CRUD 통합 테스트
 │   ├── test-storages.sh            # Bash 기반 29개 통합 테스트 스위트
-│   └── test_storages.py            # C++ 기반 29개 통합 테스트 스위트
+│   └── test_storages.py            # Python 기반 29개 통합 테스트 스위트 (C++ 연동 규격 검증)
 ```
 
 ---
@@ -258,7 +258,7 @@ Redis는 `canvas:{canvas_id}` 키에 JSON 형식으로 저장하며, Elasticsear
 ./tests/test-storages.sh
 ```
 
-### 방법 B: C++ 테스트 스크립트 실행 (Python 스크립트 활용)
+### 방법 B: Python 테스트 스크립트 실행 (C++ 연동 규격 검증)
 Python 3 표준 라이브러리(urllib, subprocess, json) 기반으로 작성되어 pip 설치 없이 즉시 실행 가능합니다.
 ```bash
 python3 tests/test_storages.py
@@ -407,6 +407,3 @@ python3 clean_storages.py -y
 - `-y`, `--yes`, `--force`: 삭제 확인 프롬프트를 생략하고 즉시 삭제를 진행합니다.
 - `--no-re-register`: MS SQL 초기화 후 Redis 서버 엔드포인트 자동 재등록을 건너뜁니다.
 - `-h`, `--help`: 도움말을 출력합니다.
-
-
-
