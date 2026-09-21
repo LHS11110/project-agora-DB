@@ -55,7 +55,7 @@ MSSQL_HOST = "127.0.0.1" if mssql_raw_host in ("0.0.0.0", "") else mssql_raw_hos
 MSSQL_PORT = mssql_env.get("MSSQL_EXTERNAL_PORT", mssql_env.get("MSSQL_PORT", "1433"))
 MSSQL_DB = mssql_env.get("MSSQL_DB", "agora_db")
 MSSQL_USER = mssql_env.get("MSSQL_USER", "agora_user")
-MSSQL_PASS = mssql_env.get("MSSQL_PASSWORD", "AgoraUserSecret@Passw0rd!2026")
+MSSQL_PASS = mssql_env.get("MSSQL_PASSWORD", "")
 MSSQL_TABLE_USERS = mssql_env.get("MSSQL_TABLE_USERS", "users")
 MSSQL_TABLE_REDIS_SERVER = mssql_env.get("MSSQL_TABLE_REDIS_SERVER", "redis_server")
 MSSQL_TABLE_CANVAS_INFO = mssql_env.get("MSSQL_TABLE_CANVAS_INFO", "canvas_info")
@@ -68,15 +68,15 @@ es_port = es_env.get("ES_EXTERNAL_PORT", es_env.get("ES_PORT", "9200"))
 ES_HOST = f"http://{es_connect_ip}:{es_port}"
 ES_INDEX = es_env.get("ES_INDEX", "canvas")
 ES_USER = es_env.get("ES_USER_NAME", "agora_user")
-ES_PASS = es_env.get("ES_USER_PASSWORD", "AgoraUserSecret@Passw0rd!2026")
+ES_PASS = es_env.get("ES_USER_PASSWORD", "")
 
 # Redis 설정
 redis_raw_host = redis_env.get("REDIS_BIND_IP", redis_env.get("REDIS_EXTERNAL_IP", "127.0.0.1"))
 REDIS_HOST = "127.0.0.1" if redis_raw_host in ("0.0.0.0", "") else redis_raw_host
 REDIS_PORT = redis_env.get("REDIS_EXTERNAL_PORT", redis_env.get("REDIS_PORT", "6379"))
-REDIS_ADMIN_PASS = redis_env.get("REDIS_PASSWORD", "AgoraRedisSecret@Passw0rd!2026")
+REDIS_ADMIN_PASS = redis_env.get("REDIS_PASSWORD", "")
 REDIS_USER = redis_env.get("REDIS_USER", "agora_user")
-REDIS_PASS = redis_env.get("REDIS_USER_PASSWORD", "AgoraUserSecret@Passw0rd!2026")
+REDIS_PASS = redis_env.get("REDIS_USER_PASSWORD", "")
 REDIS_INDEX_NAME = redis_env.get("REDIS_INDEX_NAME", "idx:canvas")
 REDIS_KEY_PREFIX = redis_env.get("REDIS_KEY_PREFIX", "canvas:")
 

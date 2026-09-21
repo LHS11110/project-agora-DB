@@ -5,10 +5,10 @@ services:
     restart: unless-stopped
     env_file:
       - .env
-    command: [ "redis-stack-server", "--requirepass", "${REDIS_PASSWORD:-AgoraRedisSecret@Passw0rd!2026}", "--protected-mode", "no" ]
+    command: [ "redis-stack-server", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD is required}", "--protected-mode", "no" ]
     environment:
       - REDIS_USER=${REDIS_USER:-agora_user}
-      - REDIS_USER_PASSWORD=${REDIS_USER_PASSWORD:-AgoraUserSecret@Passw0rd!2026}
+      - REDIS_USER_PASSWORD=${REDIS_USER_PASSWORD:?REDIS_USER_PASSWORD is required}
       - REDIS_INDEX_NAME=${REDIS_INDEX_NAME:-idx:canvas}
       - REDIS_KEY_PREFIX=${REDIS_KEY_PREFIX:-canvas:}
       - TZ=${TIMEZONE:-Asia/Seoul}
@@ -26,7 +26,7 @@ services:
         max-size: "20m"
         max-file: "3"
     healthcheck:
-      test: [ "CMD-SHELL", "redis-cli -a '${REDIS_PASSWORD:-AgoraRedisSecret@Passw0rd!2026}' ping | grep PONG || exit 1" ]
+      test: [ "CMD-SHELL", "REDISCLI_AUTH='$${REDIS_PASSWORD}' redis-cli ping | grep PONG || exit 1" ]
       interval: 15s
       timeout: 5s
       retries: 5

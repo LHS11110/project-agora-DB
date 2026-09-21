@@ -119,8 +119,8 @@ docker compose ps
 *(또는 Docker 명령어로 직접 실행)*
 ```bash
 docker exec -i agora-mssql /opt/mssql-tools18/bin/sqlcmd \
-  -S localhost -U sa -P 'AgoraStrong@Passw0rd!2026' -C -I \
-  -v DB_NAME='agora_db' -v DB_USER='agora_user' -v DB_PASSWORD='AgoraUserSecret@Passw0rd!2026' \
+  -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C -I \
+  -v DB_NAME='agora_db' -v DB_USER='agora_user' -v DB_PASSWORD="$MSSQL_PASSWORD" \
      TABLE_USERS='users' TABLE_REDIS_SERVER='redis_server' TABLE_CANVAS_INFO='canvas_info' \
      TABLE_CPP_SERVER='cpp_server' \
   < mssql/init-mssql.sql
@@ -171,6 +171,7 @@ docker exec -i agora-mssql /opt/mssql-tools18/bin/sqlcmd \
 - `oauth_id`: `NVARCHAR(255) NULL`
 - `password_changed_at`: `DATETIME2 NULL`
 - `created_at`: `DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()`
+- `last_heartbeat_at`: `DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()` (실시간 서버 생존 lease 갱신 시각)
 - `updated_at`: `DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()`
 - **제약조건**:
   - `CK_Users_Auth`: `CHECK (password_hash IS NOT NULL OR (oauth_provider IS NOT NULL AND oauth_id IS NOT NULL))`
@@ -214,7 +215,7 @@ docker exec -i agora-mssql /opt/mssql-tools18/bin/sqlcmd \
 
 ### 2) Redis Stack & Elasticsearch 캔버스 데이터 모델
 
-Redis는 `canvas:{canvas_id}` 키에 JSON 형식으로 저장하며, Elasticsearch는 `canvas` 인덱스에 동일 구조의 도큐먼트로 저장 및 검색됩니다.
+Redis는 `canvas:{canvas_id}` 키에 **RedisJSON 타입**으로 저장하며, Elasticsearch는 `canvas` 인덱스에 동일 구조의 도큐먼트로 저장 및 검색됩니다. 일반 Redis 문자열 `SET/GET`은 사용하지 않습니다.
 
 ```json
 {

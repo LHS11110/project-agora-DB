@@ -7,11 +7,11 @@ services:
       - .env
     environment:
       - ACCEPT_EULA=Y
-      - MSSQL_SA_PASSWORD=${MSSQL_SA_PASSWORD:-AgoraStrong@Passw0rd!2026}
+      - MSSQL_SA_PASSWORD=${MSSQL_SA_PASSWORD:?MSSQL_SA_PASSWORD is required}
       - MSSQL_PID=${MSSQL_PID:-Express} # 상용 서비스 시 라이선스 정책 준수 (Express: 무료 운영용, Developer: 개발 전용)
       - MSSQL_DB=${MSSQL_DB:-agora_db}
       - MSSQL_USER=${MSSQL_USER:-agora_user}
-      - MSSQL_PASSWORD=${MSSQL_PASSWORD:-AgoraUserSecret@Passw0rd!2026}
+      - MSSQL_PASSWORD=${MSSQL_PASSWORD:?MSSQL_PASSWORD is required}
       - MSSQL_TABLE_USERS=${MSSQL_TABLE_USERS:-users}
       - MSSQL_TABLE_REDIS_SERVER=${MSSQL_TABLE_REDIS_SERVER:-redis_server}
       - MSSQL_TABLE_CANVAS_INFO=${MSSQL_TABLE_CANVAS_INFO:-${MSSQL_TABLE_CANVAS_CACHE:-canvas_info}}
@@ -31,11 +31,42 @@ services:
         max-size: "20m"
         max-file: "3"
     healthcheck:
-      test: [ "CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$${MSSQL_SA_PASSWORD:-AgoraStrong@Passw0rd!2026}\" -C -Q \"SELECT 1\" || exit 1" ]
+      test: [ "CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$${MSSQL_SA_PASSWORD}\" -C -Q \"SELECT 1\" || exit 1" ]
       interval: 20s
       timeout: 10s
       retries: 5
       start_period: 30s
+
+  mssql-init:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: agora-mssql-init
+    restart: "no"
+    env_file:
+      - .env
+    environment:
+      - MSSQL_DB=${MSSQL_DB:-agora_db}
+      - MSSQL_USER=${MSSQL_USER:-agora_user}
+      - MSSQL_PASSWORD=${MSSQL_PASSWORD}
+      - MSSQL_SA_PASSWORD=${MSSQL_SA_PASSWORD}
+      - MSSQL_TABLE_USERS=${MSSQL_TABLE_USERS:-users}
+      - MSSQL_TABLE_REDIS_SERVER=${MSSQL_TABLE_REDIS_SERVER:-redis_server}
+      - MSSQL_TABLE_CANVAS_INFO=${MSSQL_TABLE_CANVAS_INFO:-canvas_info}
+      - MSSQL_TABLE_CPP_SERVER=${MSSQL_TABLE_CPP_SERVER:-cpp_server}
+    depends_on:
+      mssql:
+        condition: service_healthy
+    volumes:
+      - ./init-mssql.sql:/init/init-mssql.sql:ro
+    networks:
+      - agora-net
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - >-
+        /opt/mssql-tools18/bin/sqlcmd -S mssql -U sa -P "$$MSSQL_SA_PASSWORD" -C -I
+        -v DB_NAME="$$MSSQL_DB" DB_USER="$$MSSQL_USER" DB_PASSWORD="$$MSSQL_PASSWORD"
+        TABLE_USERS="$$MSSQL_TABLE_USERS" TABLE_REDIS_SERVER="$$MSSQL_TABLE_REDIS_SERVER"
+        TABLE_CANVAS_INFO="$$MSSQL_TABLE_CANVAS_INFO" TABLE_CANVAS_CACHE="$$MSSQL_TABLE_CANVAS_INFO"
+        TABLE_CPP_SERVER="$$MSSQL_TABLE_CPP_SERVER" -i /init/init-mssql.sql
 
 volumes:
   mssql_data:

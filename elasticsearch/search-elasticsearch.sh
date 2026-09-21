@@ -35,13 +35,13 @@ if [ -n "$ENV_FILE" ]; then
   ES_PORT=$(grep -v '^#' "$ENV_FILE" | grep 'ES_EXTERNAL_PORT=' | cut -d '=' -f2- | tr -d '\r' || echo "9200")
   ES_INDEX=$(grep -v '^#' "$ENV_FILE" | grep 'ES_INDEX=' | cut -d '=' -f2- | tr -d '\r' || echo "canvas")
   ES_USER=$(grep -v '^#' "$ENV_FILE" | grep 'ES_USER_NAME=' | cut -d '=' -f2- | tr -d '\r' || echo "agora_user")
-  ES_PASS=$(grep -v '^#' "$ENV_FILE" | grep 'ES_USER_PASSWORD=' | cut -d '=' -f2- | tr -d '\r' || echo "AgoraUserSecret@Passw0rd!2026")
+  ES_PASS=$(grep -v '^#' "$ENV_FILE" | grep 'ES_USER_PASSWORD=' | cut -d '=' -f2- | tr -d '\r' || echo "")
 else
   ES_IP="127.0.0.1"
   ES_PORT="9200"
   ES_INDEX="canvas"
   ES_USER="agora_user"
-  ES_PASS="AgoraUserSecret@Passw0rd!2026"
+  ES_PASS=""
 fi
 ES_URL="http://$ES_IP:$ES_PORT"
 

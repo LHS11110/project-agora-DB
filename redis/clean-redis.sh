@@ -53,13 +53,13 @@ if [ -n "$ENV_FILE" ]; then
     REDIS_HOST="$REDIS_RAW_HOST"
   fi
   REDIS_PORT=$(grep -v '^#' "$ENV_FILE" | grep 'REDIS_EXTERNAL_PORT=' | cut -d '=' -f2- | tr -d '\r' || echo "6379")
-  REDIS_ADMIN_PASS=$(grep -v '^#' "$ENV_FILE" | grep 'REDIS_PASSWORD=' | cut -d '=' -f2- | tr -d '\r' || echo "AgoraRedisSecret@Passw0rd!2026")
+  REDIS_ADMIN_PASS=$(grep -v '^#' "$ENV_FILE" | grep 'REDIS_PASSWORD=' | cut -d '=' -f2- | tr -d '\r' || echo "")
   REDIS_INDEX_NAME=$(grep -v '^#' "$ENV_FILE" | grep 'REDIS_INDEX_NAME=' | cut -d '=' -f2- | tr -d '\r' || echo "idx:canvas")
   REDIS_KEY_PREFIX=$(grep -v '^#' "$ENV_FILE" | grep 'REDIS_KEY_PREFIX=' | cut -d '=' -f2- | tr -d '\r' || echo "canvas:")
 else
   REDIS_HOST="127.0.0.1"
   REDIS_PORT="6379"
-  REDIS_ADMIN_PASS="AgoraRedisSecret@Passw0rd!2026"
+  REDIS_ADMIN_PASS=""
   REDIS_INDEX_NAME="idx:canvas"
   REDIS_KEY_PREFIX="canvas:"
 fi

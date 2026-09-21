@@ -46,7 +46,8 @@ fi
 MSSQL_PORT="${MSSQL_PORT:-${MSSQL_ENV_PORT:-1433}}"
 MSSQL_DB="${MSSQL_DB:-${MSSQL_ENV_DB:-agora_db}}"
 MSSQL_USER="${MSSQL_USER:-${MSSQL_ENV_USER:-agora_user}}"
-MSSQL_PASS="${MSSQL_PASSWORD:-${MSSQL_ENV_PASS:-AgoraUserSecret@Passw0rd!2026}}"
+MSSQL_PASS="${MSSQL_PASSWORD:-${MSSQL_ENV_PASS:-}}"
+: "${MSSQL_PASS:?MSSQL_PASSWORD must be configured in mssql/.env or the environment}"
 MSSQL_TABLE="${MSSQL_TABLE_REDIS_SERVER:-${MSSQL_ENV_TABLE:-redis_server}}"
 
 echo "=================================================================="

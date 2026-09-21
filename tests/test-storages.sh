@@ -59,7 +59,7 @@ if [ -f "$ROOT_DIR/mssql/.env" ]; then
   fi
   MSSQL_DB=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep 'MSSQL_DB=' | cut -d '=' -f2- | tr -d '\r' || echo "agora_db")
   MSSQL_USER=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep 'MSSQL_USER=' | cut -d '=' -f2- | tr -d '\r' || echo "agora_user")
-  MSSQL_PASS=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep 'MSSQL_PASSWORD=' | cut -d '=' -f2- | tr -d '\r' || echo "AgoraUserSecret@Passw0rd!2026")
+  MSSQL_PASS=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep 'MSSQL_PASSWORD=' | cut -d '=' -f2- | tr -d '\r' || echo "")
   MSSQL_TABLE_USERS=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep 'MSSQL_TABLE_USERS=' | cut -d '=' -f2- | tr -d '\r' || echo "users")
   MSSQL_TABLE_REDIS_SERVER=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep 'MSSQL_TABLE_REDIS_SERVER=' | cut -d '=' -f2- | tr -d '\r' || echo "redis_server")
   MSSQL_TABLE_CANVAS_INFO=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep 'MSSQL_TABLE_CANVAS_INFO=' | cut -d '=' -f2- | tr -d '\r' || true)
@@ -75,7 +75,7 @@ else
   MSSQL_PORT="1433"
   MSSQL_DB="agora_db"
   MSSQL_USER="agora_user"
-  MSSQL_PASS="AgoraUserSecret@Passw0rd!2026"
+  MSSQL_PASS=""
   MSSQL_TABLE_USERS="users"
   MSSQL_TABLE_REDIS_SERVER="redis_server"
   MSSQL_TABLE_CANVAS_INFO="canvas_info"
@@ -231,13 +231,13 @@ if [ -f "$ROOT_DIR/elasticsearch/.env" ]; then
   fi
   ES_INDEX=$(grep -v '^#' "$ROOT_DIR/elasticsearch/.env" | grep 'ES_INDEX=' | cut -d '=' -f2- | tr -d '\r' || echo "canvas")
   ES_USER=$(grep -v '^#' "$ROOT_DIR/elasticsearch/.env" | grep 'ES_USER_NAME=' | cut -d '=' -f2- | tr -d '\r' || echo "agora_user")
-  ES_PASS=$(grep -v '^#' "$ROOT_DIR/elasticsearch/.env" | grep 'ES_USER_PASSWORD=' | cut -d '=' -f2- | tr -d '\r' || echo "AgoraUserSecret@Passw0rd!2026")
+  ES_PASS=$(grep -v '^#' "$ROOT_DIR/elasticsearch/.env" | grep 'ES_USER_PASSWORD=' | cut -d '=' -f2- | tr -d '\r' || echo "")
 else
   ES_IP="127.0.0.1"
   ES_PORT="9200"
   ES_INDEX="canvas"
   ES_USER="agora_user"
-  ES_PASS="AgoraUserSecret@Passw0rd!2026"
+  ES_PASS=""
 fi
 
 ES_URL="http://$ES_IP:$ES_PORT"
@@ -348,14 +348,14 @@ if [ -f "$ROOT_DIR/redis/.env" ]; then
     REDIS_PORT=$(grep -v '^#' "$ROOT_DIR/redis/.env" | grep 'REDIS_PORT=' | cut -d '=' -f2- | tr -d '\r' || echo "6379")
   fi
   REDIS_USER=$(grep -v '^#' "$ROOT_DIR/redis/.env" | grep 'REDIS_USER=' | cut -d '=' -f2- | tr -d '\r' || echo "agora_user")
-  REDIS_PASS=$(grep -v '^#' "$ROOT_DIR/redis/.env" | grep 'REDIS_USER_PASSWORD=' | cut -d '=' -f2- | tr -d '\r' || echo "AgoraUserSecret@Passw0rd!2026")
+  REDIS_PASS=$(grep -v '^#' "$ROOT_DIR/redis/.env" | grep 'REDIS_USER_PASSWORD=' | cut -d '=' -f2- | tr -d '\r' || echo "")
   REDIS_INDEX_NAME=$(grep -v '^#' "$ROOT_DIR/redis/.env" | grep 'REDIS_INDEX_NAME=' | cut -d '=' -f2- | tr -d '\r' || echo "idx:canvas")
   REDIS_KEY_PREFIX=$(grep -v '^#' "$ROOT_DIR/redis/.env" | grep 'REDIS_KEY_PREFIX=' | cut -d '=' -f2- | tr -d '\r' || echo "canvas:")
 else
   REDIS_HOST="127.0.0.1"
   REDIS_PORT="6379"
   REDIS_USER="agora_user"
-  REDIS_PASS="AgoraUserSecret@Passw0rd!2026"
+  REDIS_PASS=""
   REDIS_INDEX_NAME="idx:canvas"
   REDIS_KEY_PREFIX="canvas:"
 fi

@@ -74,7 +74,7 @@ if [ -n "$ENV_FILE" ]; then
   fi
   MSSQL_DB=$(grep -v '^#' "$ENV_FILE" | grep 'MSSQL_DB=' | cut -d '=' -f2- | tr -d '\r' || echo "agora_db")
   MSSQL_USER=$(grep -v '^#' "$ENV_FILE" | grep 'MSSQL_USER=' | cut -d '=' -f2- | tr -d '\r' || echo "agora_user")
-  MSSQL_PASS=$(grep -v '^#' "$ENV_FILE" | grep 'MSSQL_PASSWORD=' | cut -d '=' -f2- | tr -d '\r' || echo "AgoraUserSecret@Passw0rd!2026")
+  MSSQL_PASS=$(grep -v '^#' "$ENV_FILE" | grep 'MSSQL_PASSWORD=' | cut -d '=' -f2- | tr -d '\r' || echo "")
   MSSQL_TABLE_USERS=$(grep -v '^#' "$ENV_FILE" | grep 'MSSQL_TABLE_USERS=' | cut -d '=' -f2- | tr -d '\r' || echo "users")
   MSSQL_TABLE_REDIS_SERVER=$(grep -v '^#' "$ENV_FILE" | grep 'MSSQL_TABLE_REDIS_SERVER=' | cut -d '=' -f2- | tr -d '\r' || echo "redis_server")
   MSSQL_TABLE_CANVAS_INFO=$(grep -v '^#' "$ENV_FILE" | grep 'MSSQL_TABLE_CANVAS_INFO=' | cut -d '=' -f2- | tr -d '\r' || echo "canvas_info")
@@ -84,7 +84,7 @@ else
   MSSQL_PORT="1433"
   MSSQL_DB="agora_db"
   MSSQL_USER="agora_user"
-  MSSQL_PASS="AgoraUserSecret@Passw0rd!2026"
+  MSSQL_PASS=""
   MSSQL_TABLE_USERS="users"
   MSSQL_TABLE_REDIS_SERVER="redis_server"
   MSSQL_TABLE_CANVAS_INFO="canvas_info"

@@ -89,8 +89,9 @@ BEGIN
         ws_port       VARCHAR(10)       NOT NULL,          -- C++ 웹소켓 포트 번호
         is_activated  BIT               NOT NULL DEFAULT 0, -- 활성화 여부
         created_at    DATETIME2         NOT NULL DEFAULT SYSUTCDATETIME(),
+        last_heartbeat_at DATETIME2      NOT NULL DEFAULT SYSUTCDATETIME(),
         CONSTRAINT [PK_$(TABLE_CPP_SERVER)] PRIMARY KEY CLUSTERED (server_id),
-        CONSTRAINT [UQ_$(TABLE_CPP_SERVER)_ip_port] UNIQUE NONCLUSTERED (server_ip, server_port, ws_port),
+        CONSTRAINT [UQ_$(TABLE_CPP_SERVER)_ip_port] UNIQUE NONCLUSTERED (server_ip, server_port),
         CONSTRAINT [CK_$(TABLE_CPP_SERVER)_ip] CHECK (LEN(LTRIM(RTRIM(server_ip))) > 0),
         CONSTRAINT [CK_$(TABLE_CPP_SERVER)_port] CHECK (LEN(LTRIM(RTRIM(server_port))) > 0),
         CONSTRAINT [CK_$(TABLE_CPP_SERVER)_ws_port] CHECK (LEN(LTRIM(RTRIM(ws_port))) > 0)
@@ -101,6 +102,11 @@ BEGIN
     IF COL_LENGTH('$(TABLE_CPP_SERVER)', 'is_activated') IS NULL
     BEGIN
         ALTER TABLE [$(TABLE_CPP_SERVER)] ADD is_activated BIT NOT NULL DEFAULT 0;
+    END;
+    IF COL_LENGTH('$(TABLE_CPP_SERVER)', 'last_heartbeat_at') IS NULL
+    BEGIN
+        ALTER TABLE [$(TABLE_CPP_SERVER)] ADD last_heartbeat_at DATETIME2 NOT NULL
+            CONSTRAINT [DF_$(TABLE_CPP_SERVER)_last_heartbeat_at] DEFAULT SYSUTCDATETIME();
     END;
     IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_$(TABLE_CPP_SERVER)_ip')
     BEGIN
@@ -123,7 +129,7 @@ BEGIN
         password_hash        NVARCHAR(255)     NULL,                  -- 비밀번호 해시 (NULL 허용)
         nickname             NVARCHAR(100)     NOT NULL,              -- 닉네임 (중복 가능, 공백 불가)
         tag_number           INT               NOT NULL DEFAULT 0,    -- 닉네임 유일성 식별용 정수값
-        role                 NVARCHAR(10)      NOT NULL DEFAULT 'ROLE_USER', -- 기본 ROLE_USER (관리자 ROLE_ADMIN)
+        role                 NVARCHAR(20)      NOT NULL DEFAULT 'ROLE_USER', -- 기본 ROLE_USER (관리자 ROLE_ADMIN)
         status               NVARCHAR(20)      NOT NULL DEFAULT 'ACTIVE',    -- ACTIVE, SUSPENDED, WITHDRAWN
         oauth_provider       NVARCHAR(50)      NULL,                  -- OAuth 제공자 (NULL 가능)
         oauth_id             NVARCHAR(255)     NULL,                  -- 제공자별 고유 회원 식별자 (NULL 가능)
@@ -187,7 +193,8 @@ BEGIN
     IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_$(TABLE_USERS)_Role')
         ALTER TABLE [$(TABLE_USERS)] DROP CONSTRAINT [CK_$(TABLE_USERS)_Role];
 
-    ALTER TABLE [$(TABLE_USERS)] ALTER COLUMN role NVARCHAR(10) NOT NULL;
+    UPDATE [$(TABLE_USERS)] SET role = 'ROLE_USER' WHERE role IS NULL;
+    ALTER TABLE [$(TABLE_USERS)] ALTER COLUMN role NVARCHAR(20) NOT NULL;
     IF NOT EXISTS (SELECT 1 FROM sys.default_constraints d JOIN sys.columns c ON d.parent_object_id = c.object_id AND d.parent_column_id = c.column_id WHERE d.parent_object_id = OBJECT_ID('$(TABLE_USERS)') AND c.name = 'role')
         ALTER TABLE [$(TABLE_USERS)] ADD CONSTRAINT [DF_$(TABLE_USERS)_role] DEFAULT 'ROLE_USER' FOR role;
     IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_$(TABLE_USERS)_Role')
@@ -402,6 +409,68 @@ BEGIN
         ALTER TABLE [user_sessions] ADD CONSTRAINT [DF_user_sessions_updated_at] DEFAULT SYSUTCDATETIME() FOR updated_at;
     END;
 END
+GO
+
+-- 코드 전체가 (server_ip, server_port)를 서버의 자연키로 사용하므로 기존
+-- 3열 유니크 키와 중복 행을 같은 기준으로 정규화한다.
+UPDATE [user_sessions]
+SET canvas_id = NULL, cpp_server_id = NULL, updated_at = SYSUTCDATETIME()
+WHERE is_accessed = 0 AND (canvas_id IS NOT NULL OR cpp_server_id IS NOT NULL);
+
+DECLARE @ServerDuplicates TABLE (drop_id INT PRIMARY KEY, keep_id INT NOT NULL);
+INSERT INTO @ServerDuplicates (drop_id, keep_id)
+SELECT server_id, keep_id
+FROM (
+    SELECT server_id,
+           MIN(server_id) OVER (PARTITION BY server_ip, server_port) AS keep_id,
+           ROW_NUMBER() OVER (PARTITION BY server_ip, server_port ORDER BY server_id) AS rn
+    FROM [$(TABLE_CPP_SERVER)]
+) ranked
+WHERE rn > 1;
+
+UPDATE c SET cpp_server_id = d.keep_id
+FROM [$(TABLE_CANVAS_INFO)] c
+JOIN @ServerDuplicates d ON c.cpp_server_id = d.drop_id;
+
+UPDATE s SET cpp_server_id = d.keep_id
+FROM [user_sessions] s
+JOIN @ServerDuplicates d ON s.cpp_server_id = d.drop_id;
+
+DELETE s
+FROM [$(TABLE_CPP_SERVER)] s
+JOIN @ServerDuplicates d ON s.server_id = d.drop_id;
+
+IF EXISTS (
+    SELECT 1 FROM sys.key_constraints
+    WHERE parent_object_id = OBJECT_ID('$(TABLE_CPP_SERVER)')
+      AND name = 'UQ_$(TABLE_CPP_SERVER)_ip_port'
+)
+BEGIN
+    ALTER TABLE [$(TABLE_CPP_SERVER)] DROP CONSTRAINT [UQ_$(TABLE_CPP_SERVER)_ip_port];
+END;
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.key_constraints
+    WHERE parent_object_id = OBJECT_ID('$(TABLE_CPP_SERVER)')
+      AND name = 'UQ_$(TABLE_CPP_SERVER)_ip_port'
+)
+BEGIN
+    ALTER TABLE [$(TABLE_CPP_SERVER)] ADD CONSTRAINT [UQ_$(TABLE_CPP_SERVER)_ip_port]
+        UNIQUE NONCLUSTERED (server_ip, server_port);
+END;
+GO
+
+-- 세션 정리 및 서버 장애 복구 쿼리에 필요한 인덱스.
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_user_sessions_canvas_accessed' AND object_id = OBJECT_ID('user_sessions'))
+    CREATE NONCLUSTERED INDEX [IX_user_sessions_canvas_accessed] ON [user_sessions] (canvas_id, is_accessed);
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_user_sessions_cpp_server' AND object_id = OBJECT_ID('user_sessions'))
+    CREATE NONCLUSTERED INDEX [IX_user_sessions_cpp_server] ON [user_sessions] (cpp_server_id);
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_$(TABLE_CANVAS_INFO)_cpp_server' AND object_id = OBJECT_ID('$(TABLE_CANVAS_INFO)'))
+    CREATE NONCLUSTERED INDEX [IX_$(TABLE_CANVAS_INFO)_cpp_server] ON [$(TABLE_CANVAS_INFO)] (cpp_server_id);
 GO
 
 -- 11. 데이터베이스 소유자 및 생성된 테이블 목록 확인
