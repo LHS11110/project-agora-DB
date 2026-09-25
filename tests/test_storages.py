@@ -100,7 +100,7 @@ def test_mssql():
             "-S", "localhost",
             "-U", MSSQL_USER,
             "-P", MSSQL_PASS,
-            "-C", "-I", "-d", MSSQL_DB,
+            "-C", "-b", "-I", "-d", MSSQL_DB,
             "-W", "-h", "-1",
             "-Q", f"SET NOCOUNT ON; {sql}"
         ]
@@ -108,10 +108,21 @@ def test_mssql():
         return res.stdout.strip()
 
     try:
-        # (1-1) 인증 및 dbo 권한 검증
-        auth_info = run_query("SELECT DB_NAME() + ':' + USER_NAME() + ':' + SUSER_SNAME();")
-        is_dbo = f"{MSSQL_DB}:dbo:{MSSQL_USER}" in auth_info
-        record_test(f"사용자 인증 및 DB 소유권 확인 ({MSSQL_USER} -> dbo)", is_dbo, auth_info)
+        # (1-1) 로그인과 최소 권한 런타임 역할 확인
+        auth_info = run_query(
+            "SELECT USER_NAME() + ':' + CONVERT(varchar(1), IS_ROLEMEMBER('agora_runtime')) "
+            "+ ':' + CONVERT(varchar(1), IS_ROLEMEMBER('db_owner'));"
+        )
+        least_privilege = auth_info == f"{MSSQL_USER}:1:0"
+        record_test(f"런타임 계정은 DML 역할만 사용 ({MSSQL_USER} -> agora_runtime, db_owner=0)", least_privilege, auth_info)
+
+        ddl_allowed = True
+        try:
+            run_query("CREATE TABLE [dbo].[__agora_runtime_ddl_probe] (probe_id int NOT NULL);")
+            run_query("DROP TABLE [dbo].[__agora_runtime_ddl_probe];")
+        except subprocess.CalledProcessError:
+            ddl_allowed = False
+        record_test("런타임 계정의 스키마 변경 권한 차단", not ddl_allowed)
 
         # (1-2) 환경변수 테이블 존재 여부 확인 (4개 테이블)
         tbl_cnt = run_query(f"SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME IN ('{MSSQL_TABLE_USERS}', '{MSSQL_TABLE_REDIS_SERVER}', '{MSSQL_TABLE_CANVAS_INFO}', '{MSSQL_TABLE_CPP_SERVER}');")

@@ -10,12 +10,19 @@ services:
       MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?MSSQL_SA_PASSWORD is required}
       MSSQL_PID: ${MSSQL_NODE_PID:-Standard}
       MSSQL_ENABLE_HADR: "1"
+      MSSQL_TLS_ENABLED: ${MSSQL_TLS_ENABLED:-false}
+      MSSQL_TLS_CERTIFICATE: ${MSSQL_TLS_CERTIFICATE:-/run/secrets/mssql-tls/server.crt}
+      MSSQL_TLS_KEY: ${MSSQL_TLS_KEY:-/run/secrets/mssql-tls/server.key}
       TZ: ${TIMEZONE:-Asia/Seoul}
     ports:
       - "${MSSQL_NODE_BIND_IP:?MSSQL_NODE_BIND_IP must be the node's private IP}:${MSSQL_NODE_PORT:-1433}:1433"
       - "${MSSQL_NODE_BIND_IP:?MSSQL_NODE_BIND_IP must be the node's private IP}:${MSSQL_AG_ENDPOINT_PORT:-5022}:5022"
     volumes:
+      - ../start-mssql.sh:/usr/local/bin/start-mssql.sh:ro
       - mssql_ag_data:/var/opt/mssql
+      - ${MSSQL_TLS_CERTS_DIR:-../tls}:/run/secrets/mssql-tls:ro
+    entrypoint: ["/bin/bash", "/usr/local/bin/start-mssql.sh"]
+    command: ["/opt/mssql/bin/sqlservr"]
     healthcheck:
       test:
         - CMD-SHELL

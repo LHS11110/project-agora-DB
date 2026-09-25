@@ -9,14 +9,14 @@ SET ANSI_NULLS ON;
 SET QUOTED_IDENTIFIER ON;
 GO
 
--- 1. SQL Server 일반 사용자 로그인 생성 및 비밀번호 동기화
+-- 1. SQL Server 런타임 계정 생성 및 비밀번호 동기화
 IF NOT EXISTS (SELECT 1 FROM sys.server_principals WHERE name = '$(DB_USER)')
 BEGIN
-    CREATE LOGIN [$(DB_USER)] WITH PASSWORD = '$(DB_PASSWORD)', CHECK_POLICY = OFF;
+    CREATE LOGIN [$(DB_USER)] WITH PASSWORD = '$(DB_PASSWORD)', CHECK_POLICY = ON;
 END
 ELSE
 BEGIN
-    ALTER LOGIN [$(DB_USER)] WITH PASSWORD = '$(DB_PASSWORD)';
+    ALTER LOGIN [$(DB_USER)] WITH PASSWORD = '$(DB_PASSWORD)', CHECK_POLICY = ON;
 END
 GO
 
@@ -27,11 +27,9 @@ BEGIN
 END
 GO
 
--- 3. 데이터베이스 소유자를 지정된 일반 사용자로 설정
-EXEC('USE [$(DB_NAME)]; IF EXISTS (SELECT 1 FROM sys.database_principals WHERE name = ''$(DB_USER)'') DROP USER [$(DB_USER)];');
-GO
-
-ALTER AUTHORIZATION ON DATABASE::[$(DB_NAME)] TO [$(DB_USER)];
+-- 3. DB owner와 런타임 DML 계정을 분리한다. 스키마 생성은 이 스크립트의
+--    관리자 연결로 수행하고 애플리케이션 계정은 dbo 권한을 갖지 않는다.
+ALTER AUTHORIZATION ON DATABASE::[$(DB_NAME)] TO [sa];
 GO
 
 -- 4. 해당 사용자의 기본 데이터베이스 지정
@@ -40,6 +38,21 @@ GO
 
 -- 5. 대상 데이터베이스 컨텍스트로 전환
 USE [$(DB_NAME)];
+GO
+
+IF USER_ID('$(DB_USER)') IS NULL
+    CREATE USER [$(DB_USER)] FOR LOGIN [$(DB_USER)];
+ELSE
+    ALTER USER [$(DB_USER)] WITH LOGIN = [$(DB_USER)];
+
+IF IS_ROLEMEMBER('db_owner', '$(DB_USER)') = 1
+    ALTER ROLE [db_owner] DROP MEMBER [$(DB_USER)];
+IF IS_ROLEMEMBER('db_ddladmin', '$(DB_USER)') = 1
+    ALTER ROLE [db_ddladmin] DROP MEMBER [$(DB_USER)];
+IF IS_ROLEMEMBER('db_securityadmin', '$(DB_USER)') = 1
+    ALTER ROLE [db_securityadmin] DROP MEMBER [$(DB_USER)];
+IF IS_ROLEMEMBER('db_accessadmin', '$(DB_USER)') = 1
+    ALTER ROLE [db_accessadmin] DROP MEMBER [$(DB_USER)];
 GO
 
 SET ANSI_NULLS ON;
@@ -473,7 +486,18 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_$(TABLE_CANVAS_INFO)_c
     CREATE NONCLUSTERED INDEX [IX_$(TABLE_CANVAS_INFO)_cpp_server] ON [$(TABLE_CANVAS_INFO)] (cpp_server_id);
 GO
 
--- 11. 데이터베이스 소유자 및 생성된 테이블 목록 확인
+-- Backend SQL is limited to row-level DML. Schema migrations and account
+-- management continue to run through the administrator-only init path.
+IF DATABASE_PRINCIPAL_ID('agora_runtime') IS NULL
+    CREATE ROLE [agora_runtime];
+IF IS_ROLEMEMBER('agora_runtime', '$(DB_USER)') <> 1
+    ALTER ROLE [agora_runtime] ADD MEMBER [$(DB_USER)];
+GRANT SELECT, INSERT, UPDATE, DELETE ON SCHEMA::[dbo] TO [agora_runtime];
+GO
+
+-- 11. 데이터베이스 소유자, 런타임 권한 및 생성 테이블 확인
 SELECT name AS database_name, SUSER_SNAME(owner_sid) AS owner_name FROM sys.databases WHERE name = '$(DB_NAME)';
+SELECT USER_NAME() AS runtime_user, IS_ROLEMEMBER('agora_runtime', '$(DB_USER)') AS is_runtime_member,
+       IS_ROLEMEMBER('db_owner', '$(DB_USER)') AS is_db_owner;
 SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE';
 GO

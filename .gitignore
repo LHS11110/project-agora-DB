@@ -82,6 +82,9 @@ htmlcov/
 *.log
 volumes/
 data/
+elasticsearch/snapshots/
+mssql/backups/
+redis/backups/
 docker-compose.override.yml
 *.dump
 *.bak

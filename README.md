@@ -8,10 +8,10 @@ Project Agora의 저장소 인프라입니다. 기본 Docker Compose 구성은 �
 
 | 저장소 | 역할 | 컨테이너 | 기본 로컬 포트 |
 | --- | --- | --- | --- |
-| MS SQL Server 2022 | 사용자, 세션, 캔버스 배정, C++·Redis 서버 메타데이터 | `agora-mssql` | `1433` |
-| Redis Stack | 활성 캔버스 RedisJSON, RediSearch | `agora-redis-stack` | `6379` |
-| Redis Insight | Redis 관리 UI | `agora-redis-stack` | `8001` |
-| Elasticsearch 8.15 | 캔버스 문서, 백엔드 애플리케이션 로그 | `agora-elasticsearch` | `9200` |
+| MS SQL Server 2022 CU26 | 사용자, 세션, 캔버스 배정, C++·Redis 서버 메타데이터 | `agora-mssql` | `1433` |
+| Redis 8.6.7 | 활성 캔버스 RedisJSON, RediSearch | `agora-redis-stack` | `6379` |
+| Redis Insight 3.8.0 | Redis 관리 UI | `agora-redis-insight` | `8001` |
+| Elasticsearch 9.5.4 | 캔버스 문서, 백엔드 애플리케이션 로그 | `agora-elasticsearch` | `9200` |
 
 기본 단일 노드 구성의 세 서비스는 Compose 네트워크 `agora-net`을 공유합니다. 기본값은 호스트의 loopback에만 DB, Redis, Elasticsearch를 바인딩합니다. HA 구성은 별도 Compose 네트워크와 노드 구성을 사용합니다.
 
@@ -38,6 +38,7 @@ cp mssql/.env.example mssql/.env
 cp redis/.env.example redis/.env
 cp elasticsearch/.env.example elasticsearch/.env
 chmod 600 mssql/.env redis/.env elasticsearch/.env
+./elasticsearch/prepare-storage.sh
 ```
 
 | 파일 | 필수 비밀값 |
@@ -46,7 +47,11 @@ chmod 600 mssql/.env redis/.env elasticsearch/.env
 | `redis/.env` | `REDIS_PASSWORD`, `REDIS_USER_PASSWORD` |
 | `elasticsearch/.env` | `ELASTIC_PASSWORD`, `ES_USER_PASSWORD`, `ES_LOG_USER_PASSWORD` |
 
-비밀번호는 Git에 추가하지 않습니다. BE의 `DB_PASSWORD`, `REDIS_USER_PASSWORD`, `ES_USER_PASSWORD`, `ES_LOG_USER_PASSWORD`는 이 저장소의 해당 애플리케이션 계정 비밀번호와 일치해야 합니다. 예시 비밀번호는 실제 배포 전에 안전한 난수로 교체합니다.
+비밀번호는 Git에 추가하지 않습니다. BE의 `DB_PASSWORD`, `REDIS_USER_PASSWORD`, `REDIS_SENTINEL_PASSWORD`, `ES_USER_PASSWORD`, `ES_LOG_USER_PASSWORD`는 DB 설정과 일치해야 합니다. 예시 비밀번호는 실제 배포 전에 서비스별로 별도의 안전한 난수로 교체합니다. 운영 환경은 비밀 저장소에서 프로세스 환경변수로 주입하고 `.env`는 소유자 전용 권한(`0600`)으로 유지하세요.
+
+SQL Server CA 인증서를 사용하면 `mssql/.env`에서 `MSSQL_TLS_ENABLED=true`로 설정하고 인증서와 키를 `MSSQL_TLS_CERTS_DIR`에 `server.crt`, `server.key` 이름으로 둡니다. 인증서와 개인 키는 컨테이너 내부의 `mssql` 사용자(UID 10001)가 읽을 수 있어야 하며, 인증서 SAN에 AG listener 이름과 연결에 사용하는 호스트명이 포함되어야 합니다. 개발용 단일 노드에서만 자체 서명 인증서 신뢰 우회 설정을 사용하세요.
+
+Elasticsearch HTTPS를 사용하면 CA 서명 인증서 파일을 `elasticsearch/certs/http.crt`, 개인 키를 `http.key`, 발급 CA를 `ca.crt`로 두고 `ES_HTTP_TLS_ENABLED=true`, `ES_SCHEME=https`, `ES_CA_CERT`를 설정합니다. ES 호스트 포트는 실제 CA 검증에 사용하는 호스트 이름으로 BE에 지정해야 합니다. Elasticsearch 로그 저장소는 기본 90일 ILM 보존과 35일 일일 snapshot 정책을 사용합니다. `ES_SNAPSHOT_HOST_DIR`은 컨테이너와 별도 백업 매체에 마운트하고, Elasticsearch 컨테이너 UID 1000이 쓸 수 있게 준비합니다.
 
 ### 2. 컨테이너 실행
 
@@ -71,6 +76,18 @@ docker compose ps
 ./redis/init-redis.sh
 ./elasticsearch/init-elasticsearch.sh
 ```
+
+초기화 스크립트는 `MSSQL_USER`를 `agora_runtime` DML 역할에 넣고 DB 소유자는 `sa`로 둡니다. 서버 스키마 변경은 관리자 연결로만 수행합니다. Sentinel HA를 쓸 때는 Redis `.env`의 `REDIS_SENTINEL_USER`/`REDIS_SENTINEL_PASSWORD`와 BE 환경변수 값을 일치시킵니다. 이 ACL 계정에는 primary 주소 조회만 허용합니다.
+
+기존 `ES_LOG_INDEX`가 구체적인 Elasticsearch 인덱스라면 쓰기 alias로 바로 바꾸지 않습니다. BE/C++ 로그 기록을 중지하고 먼저 스냅샷을 만든 다음 아래 마이그레이션을 실행합니다. 스크립트는 문서 수를 확인하고 alias 전환을 원자적으로 수행합니다.
+
+```bash
+./elasticsearch/snapshot-elasticsearch.sh
+ES_ALLOW_LOG_INDEX_MIGRATION=true ./elasticsearch/migrate-log-index-to-ilm.sh
+./elasticsearch/init-elasticsearch.sh
+```
+
+운영 배포에서 외부 연결이 필요하면 Elasticsearch TLS와 SQL Server TLS를 모두 구성하고 BE/C++에서 CA 검증을 사용합니다. Redis/Sentinel은 앱·DB 호스트 사이의 사설망으로만 연결하고 호스트 방화벽/보안 그룹은 필요한 앱·복제·관리 주소만 허용합니다. 기본 Compose 바인딩은 loopback입니다.
 
 초기화 후 BE 실행 방법은 [Project Agora BE README](../project-agora-BE/README.md)를 참고하세요.
 
@@ -127,7 +144,7 @@ sudo pcs status --full
 sudo pcs resource move <AG-resource>-master <target-pacemaker-node> --master --lifetime=30S
 
 # listener를 통해 새 primary를 확인 (접속 인자와 비밀번호는 환경에 맞게 전달)
-sqlcmd -S tcp:<AG-listener>,<port> -d agora_db -U <user> -C \
+sqlcmd -S tcp:<AG-listener>,<port> -d agora_db -U <user> \
   -Q "SELECT @@SERVERNAME AS primary_instance, sys.fn_hadr_is_primary_replica(N'agora_db') AS is_primary;"
 
 sudo pcs resource clear <AG-resource>-master
@@ -146,17 +163,20 @@ sudo pcs status --full
 | `MSSQL_PID` | 라이선스 에디션. 기본 `Express` |
 | `TIMEZONE` | 컨테이너 시간대 |
 | `MSSQL_DB` | 데이터베이스 이름, 기본 `agora_db` |
-| `MSSQL_USER`, `MSSQL_PASSWORD` | BE·C++가 사용하는 애플리케이션 계정 |
+| `MSSQL_USER`, `MSSQL_PASSWORD` | BE·C++가 사용하는 DML 전용 런타임 계정 (`agora_runtime` 역할) |
+| `DB_TRUST_SERVER_CERTIFICATE` | 개발용 자체 서명 인증서 예외. 운영에서는 `false` |
+| `MSSQL_TLS_ENABLED`, `MSSQL_TLS_CERTS_DIR` | SQL Server TLS 인증서 설정. 운영에서는 `true` |
 | `MSSQL_PORT`, `MSSQL_EXTERNAL_IP`, `MSSQL_EXTERNAL_PORT` | 내부 포트와 호스트 포트 바인딩 |
 | `MSSQL_TABLE_USERS`, `MSSQL_TABLE_REDIS_SERVER` | 사용자·Redis 서버 테이블 이름 |
 | `MSSQL_TABLE_CANVAS_INFO`, `MSSQL_TABLE_CPP_SERVER` | 캔버스·C++ 서버 테이블 이름 |
 
-### Redis Stack — `redis/.env`
+### Redis 8 — `redis/.env`
 
 | 변수 | 설명 |
 | --- | --- |
 | `REDIS_PASSWORD` | Redis 기본 사용자 비밀번호 및 health check 용도 |
 | `REDIS_USER`, `REDIS_USER_PASSWORD` | `canvas:*` 범위로 제한된 애플리케이션 ACL 계정 |
+| `REDIS_SENTINEL_USER`, `REDIS_SENTINEL_PASSWORD` | Sentinel primary 조회 전용 계정. 클라이언트도 같은 값을 사용 |
 | `TIMEZONE` | 컨테이너 시간대 |
 | `REDIS_INDEX_NAME` | 기본 `idx:canvas` |
 | `REDIS_KEY_PREFIX` | 기본 `canvas:` |
@@ -174,6 +194,8 @@ sudo pcs status --full
 | `ES_LOG_INDEX` | BE 로그 인덱스, 기본 `agora-logs` |
 | `ES_LOG_USER_NAME`, `ES_LOG_USER_PASSWORD` | 로그 인덱스에 문서 추가만 가능한 별도 BE 계정 |
 | `ES_EXTERNAL_IP`, `ES_EXTERNAL_PORT` | 호스트 포트 바인딩 |
+| `ES_HTTP_TLS_ENABLED`, `ES_TLS_CERTS_DIR`, `ES_SCHEME`, `ES_CA_CERT` | Elasticsearch HTTPS와 인증서 검증 설정 |
+| `ES_SNAPSHOT_HOST_DIR`, `ES_LOG_RETENTION_DAYS` | Elasticsearch snapshot 디렉터리와 로그 문서 보존 기간 |
 | `ES_JAVA_MIN_MEM`, `ES_JAVA_MAX_MEM` | Elasticsearch JVM 메모리 |
 
 ## 데이터 모델과 수명 주기
@@ -250,12 +272,19 @@ DB_PORT=1433
 DB_NAME=agora_db
 DB_USER=<MSSQL_USER>
 DB_PASSWORD=<MSSQL_PASSWORD>
+DB_ENCRYPT=true
+DB_TRUST_SERVER_CERTIFICATE=false
+DB_FREETDS_CONF=/etc/freetds/freetds.conf
 
 REDIS_USER=<REDIS_USER>
 REDIS_USER_PASSWORD=<REDIS_USER_PASSWORD>
+REDIS_SENTINEL_USER=<REDIS_SENTINEL_USER>
+REDIS_SENTINEL_PASSWORD=<REDIS_SENTINEL_PASSWORD>
 
 ES_HOST=127.0.0.1
 ES_PORT=9200
+ES_SCHEME=https
+ES_CA_CERT=/run/secrets/elasticsearch-ca.crt
 ES_INDEX=<ES_INDEX>
 ES_USER_NAME=<ES_USER_NAME>
 ES_USER_PASSWORD=<ES_USER_PASSWORD>
@@ -266,6 +295,14 @@ ES_LOG_USER_PASSWORD=<ES_LOG_USER_PASSWORD>
 ```
 
 캔버스 데이터용 `ES_USER_NAME`과 `ES_USER_PASSWORD`는 기존 인덱스에 사용하고, 백엔드 애플리케이션 로그는 MS SQL 스키마와 분리해 별도 `ES_LOG_INDEX`에 `ES_LOG_USER_NAME`/`ES_LOG_USER_PASSWORD`로 기록합니다. 초기화 스크립트가 로그 인덱스와 전용 계정을 생성합니다. 이 역할은 지정된 로그 인덱스에 문서 생성 및 동적 매핑 권한만 가지며 조회·수정·삭제나 다른 인덱스 접근 권한은 없습니다. 로그 전송은 자동 ID 또는 Elasticsearch create/op_type=create 방식으로 append-only 저장해야 하며, 로그 조회는 별도 운영 계정을 사용합니다.
+
+새 로그 문서는 쓰기 alias에 추가되며 ILM이 1일 또는 primary shard 10GB 기준으로 회전하고 기본 90일 후 backing index를 삭제합니다. SLM은 매일 UTC 02:30 캔버스와 로그 인덱스를 snapshot하고 35일간 보존합니다. snapshot 저장소는 같은 호스트의 Compose 데이터 볼륨과 분리된 내구성 볼륨/백업 매체에 보관하고, 복원은 새 Elasticsearch 환경에서 아래처럼 수행합니다.
+
+```bash
+ES_RESTORE_SNAPSHOT=agora-snapshot-20260925 ./elasticsearch/restore-elasticsearch.sh
+```
+
+SQL Server 백업은 AG primary에서 생성하고, Redis HA 백업은 Sentinel이 보고하는 primary의 RDB를 별도 저장소에 복사합니다. 백업 생성만으로 복구 가능성이 증명되지는 않으므로 운영 전 새 환경에서 SQL, Redis, Elasticsearch와 애플리케이션 로그를 복원하고 BE 연결까지 확인합니다.
 
 현재 BE와 C++은 DB 등록 정보로 Redis 위치를 찾습니다. 단일 노드에서는 Redis 컨테이너를 시작한 뒤 `./redis/init-redis.sh`를 실행해 Redis 사용자, 색인, `redis_server` 등록을 완료해야 합니다. 클러스터 전환 시 변경할 연결 동작은 아래 요구 사항을 따릅니다.
 

@@ -12,6 +12,10 @@ services:
       - MSSQL_DB=${MSSQL_DB:-agora_db}
       - MSSQL_USER=${MSSQL_USER:-agora_user}
       - MSSQL_PASSWORD=${MSSQL_PASSWORD:?MSSQL_PASSWORD is required}
+      - DB_TRUST_SERVER_CERTIFICATE=${DB_TRUST_SERVER_CERTIFICATE:-false}
+      - MSSQL_TLS_ENABLED=${MSSQL_TLS_ENABLED:-false}
+      - MSSQL_TLS_CERTIFICATE=${MSSQL_TLS_CERTIFICATE:-/run/secrets/mssql-tls/server.crt}
+      - MSSQL_TLS_KEY=${MSSQL_TLS_KEY:-/run/secrets/mssql-tls/server.key}
       - MSSQL_TABLE_USERS=${MSSQL_TABLE_USERS:-users}
       - MSSQL_TABLE_REDIS_SERVER=${MSSQL_TABLE_REDIS_SERVER:-redis_server}
       - MSSQL_TABLE_CANVAS_INFO=${MSSQL_TABLE_CANVAS_INFO:-${MSSQL_TABLE_CANVAS_CACHE:-canvas_info}}
@@ -22,7 +26,11 @@ services:
       # 외부 접속 바인딩 (.env의 MSSQL_EXTERNAL_IP, MSSQL_EXTERNAL_PORT 설정 반영)
       - "${MSSQL_EXTERNAL_IP:-127.0.0.1}:${MSSQL_EXTERNAL_PORT:-${MSSQL_PORT:-1433}}:1433"
     volumes:
+      - ./start-mssql.sh:/usr/local/bin/start-mssql.sh:ro
       - mssql_data:/var/opt/mssql
+      - ${MSSQL_TLS_CERTS_DIR:-./tls}:/run/secrets/mssql-tls:ro
+    entrypoint: ["/bin/bash", "/usr/local/bin/start-mssql.sh"]
+    command: ["/opt/mssql/bin/sqlservr"]
     networks:
       - agora-net
     logging:
@@ -48,6 +56,7 @@ services:
       - MSSQL_USER=${MSSQL_USER:-agora_user}
       - MSSQL_PASSWORD=${MSSQL_PASSWORD}
       - MSSQL_SA_PASSWORD=${MSSQL_SA_PASSWORD}
+      - DB_TRUST_SERVER_CERTIFICATE=${DB_TRUST_SERVER_CERTIFICATE:-false}
       - MSSQL_TABLE_USERS=${MSSQL_TABLE_USERS:-users}
       - MSSQL_TABLE_REDIS_SERVER=${MSSQL_TABLE_REDIS_SERVER:-redis_server}
       - MSSQL_TABLE_CANVAS_INFO=${MSSQL_TABLE_CANVAS_INFO:-canvas_info}
@@ -62,7 +71,8 @@ services:
     entrypoint: ["/bin/bash", "-c"]
     command:
       - >-
-        /opt/mssql-tools18/bin/sqlcmd -S mssql -U sa -P "$$MSSQL_SA_PASSWORD" -C -I
+        if [ "$${DB_TRUST_SERVER_CERTIFICATE:-false}" = "true" ]; then SQLCMD_TRUST=(-C); else SQLCMD_TRUST=(); fi;
+        /opt/mssql-tools18/bin/sqlcmd -S mssql -U sa -P "$$MSSQL_SA_PASSWORD" "$${SQLCMD_TRUST[@]}" -I
         -v DB_NAME="$$MSSQL_DB" DB_USER="$$MSSQL_USER" DB_PASSWORD="$$MSSQL_PASSWORD"
         TABLE_USERS="$$MSSQL_TABLE_USERS" TABLE_REDIS_SERVER="$$MSSQL_TABLE_REDIS_SERVER"
         TABLE_CANVAS_INFO="$$MSSQL_TABLE_CANVAS_INFO" TABLE_CANVAS_CACHE="$$MSSQL_TABLE_CANVAS_INFO"

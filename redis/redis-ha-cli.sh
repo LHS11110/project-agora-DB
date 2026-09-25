@@ -16,6 +16,16 @@ read_env() {
 
 REDIS_ADMIN_PASS="$(read_env REDIS_PASSWORD)"
 : "${REDIS_ADMIN_PASS:?REDIS_PASSWORD must be set in redis/.env}"
+REDIS_SENTINEL_USER="$(read_env REDIS_SENTINEL_USER)"
+REDIS_SENTINEL_PASS="$(read_env REDIS_SENTINEL_PASSWORD)"
+if [ -n "$REDIS_SENTINEL_USER" ] && [ -z "$REDIS_SENTINEL_PASS" ] || [ -z "$REDIS_SENTINEL_USER" ] && [ -n "$REDIS_SENTINEL_PASS" ]; then
+  echo "REDIS_SENTINEL_USER and REDIS_SENTINEL_PASSWORD must be set together." >&2
+  exit 1
+fi
+SENTINEL_AUTH_ARGS=()
+if [ -n "$REDIS_SENTINEL_PASS" ]; then
+  SENTINEL_AUTH_ARGS=(--user "$REDIS_SENTINEL_USER" -a "$REDIS_SENTINEL_PASS" --no-auth-warning)
+fi
 
 for container in agora-redis-primary agora-redis-replica-1 agora-redis-replica-2; do
   if [ "$(docker inspect -f '{{.State.Running}}' "$container" 2>/dev/null || true)" != "true" ]; then
@@ -32,7 +42,7 @@ done
 if [ "$(docker inspect -f '{{.State.Running}}' agora-redis-node 2>/dev/null || true)" = "true" ] \
   && [ "$(docker inspect -f '{{.State.Running}}' agora-redis-sentinel 2>/dev/null || true)" = "true" ]; then
   master_info=$(docker exec agora-redis-sentinel redis-cli -p 26379 --raw \
-    SENTINEL get-master-addr-by-name agora-master)
+    "${SENTINEL_AUTH_ARGS[@]}" SENTINEL get-master-addr-by-name agora-master)
   master_host=$(printf '%s\n' "$master_info" | sed -n '1p')
   master_port=$(printf '%s\n' "$master_info" | sed -n '2p')
   if [ -n "$master_host" ] && [ -n "$master_port" ]; then

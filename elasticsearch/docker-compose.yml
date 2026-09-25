@@ -8,6 +8,7 @@ services:
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=true
+      - ES_HTTP_TLS_ENABLED=${ES_HTTP_TLS_ENABLED:-false}
       - xpack.security.http.ssl.enabled=${ES_HTTP_TLS_ENABLED:-false}
       - xpack.security.http.ssl.certificate=${ES_TLS_CERTIFICATE:-/usr/share/elasticsearch/config/certs/http.crt}
       - xpack.security.http.ssl.key=${ES_TLS_KEY:-/usr/share/elasticsearch/config/certs/http.key}
@@ -23,7 +24,7 @@ services:
       - "${ES_EXTERNAL_IP:-127.0.0.1}:${ES_EXTERNAL_PORT:-${ES_PORT:-9200}}:9200"
     volumes:
       - es_data:/usr/share/elasticsearch/data
-      - es_snapshots:/usr/share/elasticsearch/snapshots
+      - ${ES_SNAPSHOT_HOST_DIR:-./snapshots}:/usr/share/elasticsearch/snapshots
       - ${ES_TLS_CERTS_DIR:-./certs}:/usr/share/elasticsearch/config/certs:ro
     networks:
       - agora-net
@@ -33,7 +34,7 @@ services:
         max-size: "20m"
         max-file: "3"
     healthcheck:
-      test: [ "CMD-SHELL", "SCHEME=http; if [ '$${ES_HTTP_TLS_ENABLED}' = 'true' ]; then SCHEME=https; fi; curl --cacert /usr/share/elasticsearch/config/certs/ca.crt -u elastic:$${ELASTIC_PASSWORD} -s -f \"$${SCHEME}://localhost:9200/_cluster/health\" || exit 1" ]
+      test: [ "CMD-SHELL", "if [ '$${ES_HTTP_TLS_ENABLED}' = 'true' ]; then curl --cacert /usr/share/elasticsearch/config/certs/ca.crt -u elastic:$${ELASTIC_PASSWORD} -s -f https://localhost:9200/_cluster/health; else curl -u elastic:$${ELASTIC_PASSWORD} -s -f http://localhost:9200/_cluster/health; fi || exit 1" ]
       interval: 20s
       timeout: 10s
       retries: 5
@@ -41,7 +42,6 @@ services:
 
 volumes:
   es_data:
-  es_snapshots:
 
 networks:
   agora-net:
