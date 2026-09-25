@@ -67,14 +67,18 @@ The Redis node and Sentinel bind to `REDIS_NODE_ANNOUNCE_IP` by default, so
 host-network services listen on that interface rather than every host
 interface. Set `REDIS_NODE_BIND_IP` or `REDIS_SENTINEL_BIND_IP` only when the
 listen address differs from the announced private address. The Sentinel peer
-ACL uses the existing Redis admin password. For compatibility with current BE
-clients, unauthenticated Sentinel access is limited to read-only topology
-queries; keep port 26379 firewalled to the application and Redis hosts.
+ACL uses the existing Redis admin password. Set a separate
+`REDIS_SENTINEL_USER` and `REDIS_SENTINEL_PASSWORD` in `redis/.env` and in the
+BE secret environment. The generated reader ACL can only run
+`SENTINEL GET-MASTER-ADDR-BY-NAME`; do not deploy with the unauthenticated
+development fallback. Keep port 26379 firewalled to the application and Redis
+hosts.
 
 Set `REDIS_EXTERNAL_IP` in `redis/.env` to the initial primary's client-facing
-address before running the primary initializer. The current SQL registration
-stores that one endpoint; after a failover, the application still needs
-Sentinel discovery or a stable proxy.
+address before running the primary initializer. SQL stores that endpoint for
+the existing `redis_id` registration, while BE/C++ in Sentinel mode use the
+configured Sentinel seeds to discover the current primary and ignore the row's
+IP/port for data connections. Failover does not require changing the row.
 
 `REDIS_NODE_ANNOUNCE_IP` must be reachable from every Redis node and client.
 Allow Redis port 6379 between nodes and clients, and Sentinel port 26379
@@ -93,8 +97,9 @@ the most recent writes if they had not reached a replica yet.
 
 The repository's maintenance CLI scripts locate the current primary by
 checking the local Redis/Sentinel containers. The existing `redis_server`
-table continues to register the initial primary endpoint; an application that
-must survive failover needs a Sentinel-aware client or a stable proxy endpoint.
+table continues to register the initial primary endpoint for the logical Redis
+service. BE/C++ use `REDIS_SENTINELS` and `REDIS_SENTINEL_MASTER_NAME` to
+discover the current primary, so they keep the same `redis_id` across failover.
 
 Run the local automatic failover exercise after starting and initializing the
 Sentinel lab:
@@ -106,10 +111,12 @@ docker compose --env-file redis/.env -f redis/docker-compose.sentinel.yml up -d
 ./redis/test-failover.sh
 ```
 
-The script uses only the six local lab containers. It waits for the probe
-document to reach both replicas, stops the current primary, checks that all
-three Sentinels report the promoted node, verifies RedisJSON and RediSearch on
-it, restarts the old primary, and waits for all three nodes to return to a
-primary/replica topology. It deletes its temporary probe key after success.
+The script uses only the six local lab containers. It authenticates Sentinel
+queries with `REDIS_SENTINEL_USER`/`REDIS_SENTINEL_PASSWORD` when configured.
+It waits for the probe document to reach both replicas, stops the current
+primary, checks that all three Sentinels report the promoted node, verifies
+RedisJSON and RediSearch on it, restarts the old primary, and waits for all
+three nodes to return to a primary/replica topology. It deletes its temporary
+probe key after success.
 The test introduces a brief Redis interruption; don't run it against a live
 service.

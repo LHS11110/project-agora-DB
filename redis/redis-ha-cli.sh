@@ -24,7 +24,7 @@ if [ -n "$REDIS_SENTINEL_USER" ] && [ -z "$REDIS_SENTINEL_PASS" ] || [ -z "$REDI
 fi
 SENTINEL_AUTH_ARGS=()
 if [ -n "$REDIS_SENTINEL_PASS" ]; then
-  SENTINEL_AUTH_ARGS=(--user "$REDIS_SENTINEL_USER" -a "$REDIS_SENTINEL_PASS" --no-auth-warning)
+  SENTINEL_AUTH_ARGS=(--user "$REDIS_SENTINEL_USER")
 fi
 
 for container in agora-redis-primary agora-redis-replica-1 agora-redis-replica-2; do
@@ -41,7 +41,7 @@ done
 
 if [ "$(docker inspect -f '{{.State.Running}}' agora-redis-node 2>/dev/null || true)" = "true" ] \
   && [ "$(docker inspect -f '{{.State.Running}}' agora-redis-sentinel 2>/dev/null || true)" = "true" ]; then
-  master_info=$(docker exec agora-redis-sentinel redis-cli -p 26379 --raw \
+  master_info=$(docker exec -e REDISCLI_AUTH="$REDIS_SENTINEL_PASS" agora-redis-sentinel redis-cli -p 26379 --raw \
     "${SENTINEL_AUTH_ARGS[@]}" SENTINEL get-master-addr-by-name agora-master)
   master_host=$(printf '%s\n' "$master_info" | sed -n '1p')
   master_port=$(printf '%s\n' "$master_info" | sed -n '2p')

@@ -14,6 +14,9 @@ SENTINEL_ACL="user default on nopass -@all +auth +client|getname +client|id +cli
 if [ -n "${REDIS_SENTINEL_USER:-}" ] || [ -n "${REDIS_SENTINEL_PASSWORD:-}" ]; then
   : "${REDIS_SENTINEL_USER:?REDIS_SENTINEL_USER is required with REDIS_SENTINEL_PASSWORD}"
   : "${REDIS_SENTINEL_PASSWORD:?REDIS_SENTINEL_PASSWORD is required with REDIS_SENTINEL_USER}"
+  case "$REDIS_SENTINEL_USER" in
+    *[!A-Za-z0-9_.-]*) echo "REDIS_SENTINEL_USER contains unsupported ACL username characters." >&2; exit 1 ;;
+  esac
   SENTINEL_PASSWORD_HASH=$(printf '%s' "$REDIS_SENTINEL_PASSWORD" | sha256sum | awk '{print $1}')
   SENTINEL_ACL="user default off
 user $REDIS_SENTINEL_USER on #$SENTINEL_PASSWORD_HASH -@all +auth +ping +sentinel|get-master-addr-by-name"

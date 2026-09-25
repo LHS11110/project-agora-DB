@@ -15,11 +15,18 @@ read_env() {
 REDIS_ADMIN_PASSWORD="${REDIS_PASSWORD:-$(read_env REDIS_PASSWORD)}"
 REDIS_APP_USER="${REDIS_USER:-$(read_env REDIS_USER)}"
 REDIS_APP_PASSWORD="${REDIS_USER_PASSWORD:-$(read_env REDIS_USER_PASSWORD)}"
+REDIS_SENTINEL_USER="${REDIS_SENTINEL_USER:-$(read_env REDIS_SENTINEL_USER)}"
+REDIS_SENTINEL_PASSWORD="${REDIS_SENTINEL_PASSWORD:-$(read_env REDIS_SENTINEL_PASSWORD)}"
 REDIS_INDEX="${REDIS_INDEX_NAME:-$(read_env REDIS_INDEX_NAME)}"
 REDIS_INDEX="${REDIS_INDEX:-idx:canvas}"
 REDIS_APP_USER="${REDIS_APP_USER:-agora_user}"
 : "${REDIS_ADMIN_PASSWORD:?Set REDIS_PASSWORD in redis/.env}"
 : "${REDIS_APP_PASSWORD:?Set REDIS_USER_PASSWORD in redis/.env}"
+if [ -n "$REDIS_SENTINEL_USER" ] && [ -z "$REDIS_SENTINEL_PASSWORD" ] \
+  || [ -z "$REDIS_SENTINEL_USER" ] && [ -n "$REDIS_SENTINEL_PASSWORD" ]; then
+  echo "REDIS_SENTINEL_USER and REDIS_SENTINEL_PASSWORD must be set together" >&2
+  exit 1
+fi
 
 PROBE_TAG="haft$(date +%s)$$"
 PROBE_KEY="canvas:$PROBE_TAG"
@@ -75,8 +82,13 @@ verify_probe() {
 
 sentinel_matches_primary() {
   local primary="$1" sentinel report host port ip aliases
+  local sentinel_auth_args=()
+  if [ -n "$REDIS_SENTINEL_PASSWORD" ]; then
+    sentinel_auth_args=(--user "$REDIS_SENTINEL_USER")
+  fi
   for sentinel in "${SENTINELS[@]}"; do
-    report="$(docker exec "$sentinel" redis-cli --raw -p 26379 \
+    report="$(docker exec -e REDISCLI_AUTH="$REDIS_SENTINEL_PASSWORD" "$sentinel" \
+      redis-cli --raw -p 26379 "${sentinel_auth_args[@]}" \
       SENTINEL get-master-addr-by-name "$MASTER_NAME" 2>/dev/null)" || return 1
     host="$(printf '%s\n' "$report" | sed -n '1p' | tr -d '\r')"
     port="$(printf '%s\n' "$report" | sed -n '2p' | tr -d '\r')"
