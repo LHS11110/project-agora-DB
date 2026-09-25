@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     env_file:
       - .env
-    command: [ "redis-stack-server", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD is required}", "--protected-mode", "no" ]
+    command: [ "redis-stack-server", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD is required}", "--protected-mode", "yes" ]
     environment:
       - REDIS_USER=${REDIS_USER:-agora_user}
       - REDIS_USER_PASSWORD=${REDIS_USER_PASSWORD:?REDIS_USER_PASSWORD is required}
@@ -15,7 +15,7 @@ services:
     ports:
       # 호스트 포트 바인딩 (.env의 REDIS_BIND_IP, REDIS_EXTERNAL_PORT 설정 반영)
       - "${REDIS_BIND_IP:-127.0.0.1}:${REDIS_EXTERNAL_PORT:-${REDIS_PORT:-6379}}:6379"
-      - "${REDIS_INSIGHT_PORT:-8001}:8001"
+      - "${REDIS_INSIGHT_BIND_IP:-127.0.0.1}:${REDIS_INSIGHT_PORT:-8001}:8001"
     volumes:
       - redis_data:/data
     networks:

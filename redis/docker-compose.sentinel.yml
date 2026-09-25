@@ -18,7 +18,7 @@ services:
       - --appendonly
       - "yes"
       - --protected-mode
-      - "no"
+      - "yes"
       - --aclfile
       - /data/users.acl
     ports:
@@ -54,7 +54,7 @@ services:
       - --appendonly
       - "yes"
       - --protected-mode
-      - "no"
+      - "yes"
       - --aclfile
       - /data/users.acl
     volumes:
@@ -91,7 +91,7 @@ services:
       - --appendonly
       - "yes"
       - --protected-mode
-      - "no"
+      - "yes"
       - --aclfile
       - /data/users.acl
     volumes:
@@ -167,7 +167,7 @@ services:
     container_name: agora-redis-insight
     restart: unless-stopped
     ports:
-      - "${REDIS_INSIGHT_PORT:-8001}:5540"
+      - "${REDIS_INSIGHT_BIND_IP:-127.0.0.1}:${REDIS_INSIGHT_PORT:-8001}:5540"
     volumes:
       - redis_insight_data:/data
     networks:

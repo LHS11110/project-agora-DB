@@ -30,7 +30,7 @@ flowchart LR
 
 ### 1. 환경 파일 준비
 
-각 서비스는 독립 환경 파일을 사용합니다. 예시 파일을 복사한 뒤 모든 `change-me` 값을 충분히 긴 난수로 교체합니다. 예를 들어 `openssl rand -hex 32`로 각 비밀번호를 따로 생성할 수 있습니다.
+각 서비스는 독립 환경 파일을 사용합니다. 예시 파일을 복사한 뒤 모든 placeholder 값을 충분히 긴 난수로 교체합니다. Redis와 Elasticsearch 비밀번호는 `openssl rand -hex 32`로 만들 수 있습니다. SQL Server `MSSQL_SA_PASSWORD`는 최소 8자이며 대문자·소문자·숫자·기호 중 세 종류가 필요합니다. 예를 들어 `printf 'A9!%s\n' "$(openssl rand -hex 32)"`로 생성하면 이 정책을 충족합니다.
 
 ```bash
 cd /path/to/project-agora-DB

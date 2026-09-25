@@ -36,7 +36,9 @@ for container in agora-redis-primary agora-redis-replica-1 agora-redis-replica-2
   echo "Configuring ACL on $container"
   docker exec -e REDISCLI_AUTH="$REDIS_PASSWORD" "$container" redis-cli \
     ACL SETUSER "$REDIS_USER" reset on ">$REDIS_USER_PASSWORD" \
-    "~${REDIS_KEY_PREFIX}*" "~${REDIS_INDEX_NAME}*" '&*' '+@all'
+    "~${REDIS_KEY_PREFIX}*" "~${REDIS_INDEX_NAME}*" resetchannels -@all \
+    +auth +ping +role +json.get +json.set +json.arrlen +json.arrappend +json.del \
+    +get +del +exists +keys +eval +ft.search +ft.info
   docker exec -e REDISCLI_AUTH="$REDIS_PASSWORD" "$container" redis-cli ACL SAVE
 done
 

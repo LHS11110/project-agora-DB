@@ -51,11 +51,11 @@ echo "=== 1. Elasticsearch 역할 ($ES_ROLE) 생성 및 인덱스($INDEX_NAME) �
 curl -s -f -u "$ES_SUPER_USER:$ES_SUPER_PASS" -X PUT "$ES_HOST/_security/role/$ES_ROLE" \
      -H 'Content-Type: application/json' \
      -d "{
-  \"cluster\": [\"monitor\"],
+  \"cluster\": [],
   \"indices\": [
     {
       \"names\": [ \"$INDEX_NAME\" ],
-      \"privileges\": [ \"all\" ]
+      \"privileges\": [ \"read\", \"write\", \"view_index_metadata\" ]
     }
   ]
 }"

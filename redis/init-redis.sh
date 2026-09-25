@@ -26,6 +26,8 @@ else
   REDIS_HOST="$REDIS_BIND_IP"
 fi
 REDIS_PORT="$REDIS_EXTERNAL_PORT"
+REDIS_HOST="${REDIS_CONNECT_HOST:-$REDIS_HOST}"
+REDIS_PORT="${REDIS_CONNECT_PORT:-$REDIS_PORT}"
 : "${REDIS_PASSWORD:?REDIS_PASSWORD must be set in redis/.env}"
 REDIS_ADMIN_PASS="$REDIS_PASSWORD"
 REDIS_USER="${REDIS_USER:-agora_user}"
@@ -47,7 +49,8 @@ else
     if [ "$(docker inspect -f '{{.State.Running}}' agora-redis-primary 2>/dev/null || true)" = "true" ]; then
       docker exec -e REDISCLI_AUTH="$REDIS_ADMIN_PASS" agora-redis-primary redis-cli "$@"
     elif [ "$(docker inspect -f '{{.State.Running}}' agora-redis-node 2>/dev/null || true)" = "true" ]; then
-      docker exec -e REDISCLI_AUTH="$REDIS_ADMIN_PASS" agora-redis-node redis-cli "$@"
+      docker exec -e REDISCLI_AUTH="$REDIS_ADMIN_PASS" agora-redis-node \
+        redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" "$@"
     else
       docker exec -e REDISCLI_AUTH="$REDIS_ADMIN_PASS" agora-redis-stack redis-cli "$@"
     fi
@@ -56,7 +59,8 @@ else
     if [ "$(docker inspect -f '{{.State.Running}}' agora-redis-primary 2>/dev/null || true)" = "true" ]; then
       docker exec agora-redis-primary redis-cli --user "$REDIS_USER" -a "$REDIS_USER_PASS" --no-auth-warning "$@"
     elif [ "$(docker inspect -f '{{.State.Running}}' agora-redis-node 2>/dev/null || true)" = "true" ]; then
-      docker exec agora-redis-node redis-cli --user "$REDIS_USER" -a "$REDIS_USER_PASS" --no-auth-warning "$@"
+      docker exec agora-redis-node redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" \
+        --user "$REDIS_USER" -a "$REDIS_USER_PASS" --no-auth-warning "$@"
     else
       docker exec agora-redis-stack redis-cli --user "$REDIS_USER" -a "$REDIS_USER_PASS" --no-auth-warning "$@"
     fi
@@ -64,9 +68,13 @@ else
 fi
 
 echo "=== 1. Redis ACL 사용자 ($REDIS_USER) 생성 및 권한 부여 ==="
-# 네임스페이스(~${REDIS_KEY_PREFIX}*) 및 인덱스(~${REDIS_INDEX_NAME}*)에 한해 CRUD 및 검색 전체 권한 부여
-run_admin_cli ACL SETUSER "$REDIS_USER" reset on ">$REDIS_USER_PASS" "~${REDIS_KEY_PREFIX}*" "~${REDIS_INDEX_NAME}*" '&*' '+@all'
-echo "[OK] 사용자($REDIS_USER) ACL 생성 완료 (허용 대상: ~${REDIS_KEY_PREFIX}*, ~${REDIS_INDEX_NAME}*)"
+# Keep commands used by the BE and failover/inspection checks, limited to the
+# application's key namespace and RediSearch index.
+run_admin_cli ACL SETUSER "$REDIS_USER" reset on ">$REDIS_USER_PASS" \
+  "~${REDIS_KEY_PREFIX}*" "~${REDIS_INDEX_NAME}*" resetchannels -@all \
+  +auth +ping +role +json.get +json.set +json.arrlen +json.arrappend +json.del \
+  +get +del +exists +keys +eval +ft.search +ft.info
+echo "[OK] 사용자($REDIS_USER) ACL 생성 완료 (제한된 명령 및 키 네임스페이스 적용)"
 
 echo -e "\n=== 2. Redis Stack RediSearch 인덱스 ($REDIS_INDEX_NAME) 생성 ==="
 # 인덱스가 이미 존재하는지 확인
