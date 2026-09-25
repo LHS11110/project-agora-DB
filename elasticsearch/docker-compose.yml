@@ -1,6 +1,6 @@
 services:
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.5.4
     container_name: agora-elasticsearch
     restart: unless-stopped
     env_file:
@@ -8,17 +8,23 @@ services:
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=true
+      - xpack.security.http.ssl.enabled=${ES_HTTP_TLS_ENABLED:-false}
+      - xpack.security.http.ssl.certificate=${ES_TLS_CERTIFICATE:-/usr/share/elasticsearch/config/certs/http.crt}
+      - xpack.security.http.ssl.key=${ES_TLS_KEY:-/usr/share/elasticsearch/config/certs/http.key}
       - ELASTIC_PASSWORD=${ELASTIC_PASSWORD:?ELASTIC_PASSWORD is required}
       - ES_INDEX=${ES_INDEX:-canvas}
       - ES_USER_NAME=${ES_USER_NAME:-agora_user}
       - ES_USER_PASSWORD=${ES_USER_PASSWORD:?ES_USER_PASSWORD is required}
       - "ES_JAVA_OPTS=-Xms${ES_JAVA_MIN_MEM:-1g} -Xmx${ES_JAVA_MAX_MEM:-2g}"
       - TZ=${TIMEZONE:-Asia/Seoul}
+      - path.repo=/usr/share/elasticsearch/snapshots
     ports:
       # 외부 접속 바인딩 (.env의 ES_EXTERNAL_IP, ES_EXTERNAL_PORT 설정 반영)
       - "${ES_EXTERNAL_IP:-127.0.0.1}:${ES_EXTERNAL_PORT:-${ES_PORT:-9200}}:9200"
     volumes:
       - es_data:/usr/share/elasticsearch/data
+      - es_snapshots:/usr/share/elasticsearch/snapshots
+      - ${ES_TLS_CERTS_DIR:-./certs}:/usr/share/elasticsearch/config/certs:ro
     networks:
       - agora-net
     logging:
@@ -27,7 +33,7 @@ services:
         max-size: "20m"
         max-file: "3"
     healthcheck:
-      test: [ "CMD-SHELL", "curl -u elastic:$${ELASTIC_PASSWORD} -s -f http://localhost:9200/_cluster/health || exit 1" ]
+      test: [ "CMD-SHELL", "SCHEME=http; if [ '$${ES_HTTP_TLS_ENABLED}' = 'true' ]; then SCHEME=https; fi; curl --cacert /usr/share/elasticsearch/config/certs/ca.crt -u elastic:$${ELASTIC_PASSWORD} -s -f \"$${SCHEME}://localhost:9200/_cluster/health\" || exit 1" ]
       interval: 20s
       timeout: 10s
       retries: 5
@@ -35,6 +41,7 @@ services:
 
 volumes:
   es_data:
+  es_snapshots:
 
 networks:
   agora-net:

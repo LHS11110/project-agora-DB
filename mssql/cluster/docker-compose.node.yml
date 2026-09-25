@@ -2,7 +2,7 @@
 # this Compose file, and manages the external-type Availability Group resource.
 services:
   mssql-ag-node:
-    image: mcr.microsoft.com/mssql/server:2022-latest
+    image: mcr.microsoft.com/mssql/server:2022-CU26-ubuntu-22.04
     hostname: ${MSSQL_NODE_HOSTNAME:?MSSQL_NODE_HOSTNAME is required (15 characters or fewer)}
     restart: unless-stopped
     environment:

@@ -1,11 +1,13 @@
 services:
   redis-stack:
-    image: redis/redis-stack:latest
+    # Redis 8 bundles RedisJSON and RediSearch into the core server. Redis Stack
+    # images are no longer the maintained production distribution.
+    image: redis:8.6.7
     container_name: agora-redis-stack
     restart: unless-stopped
     env_file:
       - .env
-    command: [ "redis-stack-server", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD is required}", "--protected-mode", "yes" ]
+    command: [ "redis-server", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD is required}", "--protected-mode", "yes" ]
     environment:
       - REDIS_USER=${REDIS_USER:-agora_user}
       - REDIS_USER_PASSWORD=${REDIS_USER_PASSWORD:?REDIS_USER_PASSWORD is required}
@@ -15,7 +17,6 @@ services:
     ports:
       # 호스트 포트 바인딩 (.env의 REDIS_BIND_IP, REDIS_EXTERNAL_PORT 설정 반영)
       - "${REDIS_BIND_IP:-127.0.0.1}:${REDIS_EXTERNAL_PORT:-${REDIS_PORT:-6379}}:6379"
-      - "${REDIS_INSIGHT_BIND_IP:-127.0.0.1}:${REDIS_INSIGHT_PORT:-8001}:8001"
     volumes:
       - redis_data:/data
     networks:
@@ -31,8 +32,25 @@ services:
       timeout: 5s
       retries: 5
 
+  redis-insight:
+    image: redis/redisinsight:3.8.0
+    container_name: agora-redis-insight
+    restart: unless-stopped
+    ports:
+      - "${REDIS_INSIGHT_BIND_IP:-127.0.0.1}:${REDIS_INSIGHT_PORT:-8001}:5540"
+    volumes:
+      - redis_insight_data:/data
+    networks:
+      - agora-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+
 volumes:
   redis_data:
+  redis_insight_data:
 
 networks:
   agora-net:

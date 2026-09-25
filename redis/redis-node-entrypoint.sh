@@ -5,7 +5,7 @@ set -eu
 : "${REDIS_NODE_ANNOUNCE_IP:?REDIS_NODE_ANNOUNCE_IP is required}"
 REDIS_NODE_BIND_IP="${REDIS_NODE_BIND_IP:-$REDIS_NODE_ANNOUNCE_IP}"
 
-set -- redis-stack-server \
+set -- redis-server \
   --port "${REDIS_NODE_PORT:-6379}" \
   --bind "$REDIS_NODE_BIND_IP" \
   --requirepass "$REDIS_PASSWORD" \

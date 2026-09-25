@@ -10,10 +10,16 @@ SENTINEL_BIND_IP="${REDIS_SENTINEL_BIND_IP:-0.0.0.0}"
 ESCAPED_PASSWORD=$(printf '%s' "$REDIS_PASSWORD" | sed 's/\\/\\\\/g; s/"/\\"/g')
 PASSWORD_HASH=$(printf '%s' "$REDIS_PASSWORD" | sha256sum | awk '{print $1}')
 
-# Existing backend clients query Sentinel without AUTH. Keep discovery
-# read-only while requiring the Redis admin credential for Sentinel peers.
+SENTINEL_ACL="user default on nopass -@all +auth +client|getname +client|id +client|setname +client|setinfo +command +hello +ping +role +sentinel|get-master-addr-by-name +sentinel|master +sentinel|myid +sentinel|replicas +sentinel|sentinels +sentinel|masters"
+if [ -n "${REDIS_SENTINEL_USER:-}" ] || [ -n "${REDIS_SENTINEL_PASSWORD:-}" ]; then
+  : "${REDIS_SENTINEL_USER:?REDIS_SENTINEL_USER is required with REDIS_SENTINEL_PASSWORD}"
+  : "${REDIS_SENTINEL_PASSWORD:?REDIS_SENTINEL_PASSWORD is required with REDIS_SENTINEL_USER}"
+  SENTINEL_PASSWORD_HASH=$(printf '%s' "$REDIS_SENTINEL_PASSWORD" | sha256sum | awk '{print $1}')
+  SENTINEL_ACL="user default off
+user $REDIS_SENTINEL_USER on #$SENTINEL_PASSWORD_HASH -@all +auth +ping +sentinel|get-master-addr-by-name"
+fi
 cat > "$ACL_FILE" <<EOF
-user default on nopass -@all +auth +client|getname +client|id +client|setname +client|setinfo +command +hello +ping +role +sentinel|get-master-addr-by-name +sentinel|master +sentinel|myid +sentinel|replicas +sentinel|sentinels +sentinel|masters
+$SENTINEL_ACL
 user sentinel-internal on #$PASSWORD_HASH allchannels +@all
 EOF
 chmod 600 "$ACL_FILE"

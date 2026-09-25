@@ -52,7 +52,7 @@ else
       docker exec -e REDISCLI_AUTH="$REDIS_ADMIN_PASS" agora-redis-node \
         redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" "$@"
     else
-      docker exec -e REDISCLI_AUTH="$REDIS_ADMIN_PASS" agora-redis-stack redis-cli "$@"
+    docker exec -e REDISCLI_AUTH="$REDIS_ADMIN_PASS" agora-redis-stack redis-cli "$@"
     fi
   }
   run_user_cli() {

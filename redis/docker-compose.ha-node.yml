@@ -2,7 +2,7 @@
 # host. Host networking lets Sentinel advertise directly reachable node IPs.
 services:
   redis-node:
-    image: redis/redis-stack-server:latest
+    image: redis:8.6.7
     container_name: agora-redis-node
     hostname: ${REDIS_NODE_HOSTNAME:?REDIS_NODE_HOSTNAME is required}
     restart: unless-stopped
@@ -27,7 +27,7 @@ services:
       start_period: 30s
 
   redis-sentinel:
-    image: redis/redis-stack-server:latest
+    image: redis:8.6.7
     container_name: agora-redis-sentinel
     restart: unless-stopped
     network_mode: host

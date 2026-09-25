@@ -1,6 +1,6 @@
 services:
   mssql:
-    image: mcr.microsoft.com/mssql/server:2022-latest
+    image: mcr.microsoft.com/mssql/server:2022-CU26-ubuntu-22.04
     container_name: agora-mssql
     restart: unless-stopped
     env_file:
@@ -38,7 +38,7 @@ services:
       start_period: 30s
 
   mssql-init:
-    image: mcr.microsoft.com/mssql/server:2022-latest
+    image: mcr.microsoft.com/mssql/server:2022-CU26-ubuntu-22.04
     container_name: agora-mssql-init
     restart: "no"
     env_file:

@@ -2,13 +2,13 @@
 # Run separately from the single-node root Compose stack.
 services:
   redis-primary:
-    image: redis/redis-stack-server:latest
+    image: redis:8.6.7
     container_name: agora-redis-primary
     restart: unless-stopped
     env_file:
       - .env
     command:
-      - redis-stack-server
+      - redis-server
       - --port
       - "6379"
       - --requirepass
@@ -35,13 +35,13 @@ services:
       start_period: 30s
 
   redis-replica-1:
-    image: redis/redis-stack-server:latest
+    image: redis:8.6.7
     container_name: agora-redis-replica-1
     restart: unless-stopped
     env_file:
       - .env
     command:
-      - redis-stack-server
+      - redis-server
       - --port
       - "6379"
       - --requirepass
@@ -72,13 +72,13 @@ services:
       start_period: 30s
 
   redis-replica-2:
-    image: redis/redis-stack-server:latest
+    image: redis:8.6.7
     container_name: agora-redis-replica-2
     restart: unless-stopped
     env_file:
       - .env
     command:
-      - redis-stack-server
+      - redis-server
       - --port
       - "6379"
       - --requirepass
@@ -109,7 +109,7 @@ services:
       start_period: 30s
 
   redis-sentinel-1:
-    image: redis/redis-stack-server:latest
+    image: redis:8.6.7
     container_name: agora-redis-sentinel-1
     restart: unless-stopped
     env_file:
@@ -127,7 +127,7 @@ services:
         condition: service_healthy
 
   redis-sentinel-2:
-    image: redis/redis-stack-server:latest
+    image: redis:8.6.7
     container_name: agora-redis-sentinel-2
     restart: unless-stopped
     env_file:
@@ -145,7 +145,7 @@ services:
         condition: service_healthy
 
   redis-sentinel-3:
-    image: redis/redis-stack-server:latest
+    image: redis:8.6.7
     container_name: agora-redis-sentinel-3
     restart: unless-stopped
     env_file:
@@ -163,7 +163,7 @@ services:
         condition: service_healthy
 
   redis-insight:
-    image: redis/redisinsight:latest
+    image: redis/redisinsight:3.8.0
     container_name: agora-redis-insight
     restart: unless-stopped
     ports:
