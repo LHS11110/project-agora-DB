@@ -1,0 +1,29 @@
+# Run one copy per SQL Server host. Pacemaker runs on the Linux hosts, not in
+# this Compose file, and manages the external-type Availability Group resource.
+services:
+  mssql-ag-node:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    hostname: ${MSSQL_NODE_HOSTNAME:?MSSQL_NODE_HOSTNAME is required (15 characters or fewer)}
+    restart: unless-stopped
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?MSSQL_SA_PASSWORD is required}
+      MSSQL_PID: ${MSSQL_NODE_PID:-Standard}
+      MSSQL_ENABLE_HADR: "1"
+      TZ: ${TIMEZONE:-Asia/Seoul}
+    ports:
+      - "${MSSQL_NODE_BIND_IP:?MSSQL_NODE_BIND_IP must be the node's private IP}:${MSSQL_NODE_PORT:-1433}:1433"
+      - "${MSSQL_NODE_BIND_IP:?MSSQL_NODE_BIND_IP must be the node's private IP}:${MSSQL_AG_ENDPOINT_PORT:-5022}:5022"
+    volumes:
+      - mssql_ag_data:/var/opt/mssql
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$${MSSQL_SA_PASSWORD}" -C -Q "SELECT 1" || exit 1
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  mssql_ag_data:

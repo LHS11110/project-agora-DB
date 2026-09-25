@@ -52,7 +52,10 @@ else
 fi
 
 run_cli() {
-  if command -v redis-cli &> /dev/null; then
+  if [ "$(docker inspect -f '{{.State.Running}}' agora-redis-primary 2>/dev/null || true)" = "true" ] \
+    || [ "$(docker inspect -f '{{.State.Running}}' agora-redis-node 2>/dev/null || true)" = "true" ]; then
+    "$SCRIPT_DIR/redis-ha-cli.sh" "$@"
+  elif command -v redis-cli &> /dev/null; then
     REDISCLI_AUTH="$REDIS_ADMIN_PASS" redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" "$@"
   else
     docker exec -e REDISCLI_AUTH="$REDIS_ADMIN_PASS" agora-redis-stack redis-cli "$@"

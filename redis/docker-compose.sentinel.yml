@@ -1,0 +1,187 @@
+# Redis Stack HA topology: one primary, two replicas, three Sentinels.
+# Run separately from the single-node root Compose stack.
+services:
+  redis-primary:
+    image: redis/redis-stack-server:latest
+    container_name: agora-redis-primary
+    restart: unless-stopped
+    env_file:
+      - .env
+    command:
+      - redis-stack-server
+      - --port
+      - "6379"
+      - --requirepass
+      - ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      - --masterauth
+      - ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      - --appendonly
+      - "yes"
+      - --protected-mode
+      - "no"
+      - --aclfile
+      - /data/users.acl
+    ports:
+      - "${REDIS_BIND_IP:-127.0.0.1}:${REDIS_EXTERNAL_PORT:-${REDIS_PORT:-6379}}:6379"
+    volumes:
+      - redis_primary_data:/data
+    networks:
+      - redis-ha
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH='$${REDIS_PASSWORD}' redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  redis-replica-1:
+    image: redis/redis-stack-server:latest
+    container_name: agora-redis-replica-1
+    restart: unless-stopped
+    env_file:
+      - .env
+    command:
+      - redis-stack-server
+      - --port
+      - "6379"
+      - --requirepass
+      - ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      - --masterauth
+      - ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      - --replicaof
+      - redis-primary
+      - "6379"
+      - --appendonly
+      - "yes"
+      - --protected-mode
+      - "no"
+      - --aclfile
+      - /data/users.acl
+    volumes:
+      - redis_replica_1_data:/data
+    networks:
+      - redis-ha
+    depends_on:
+      redis-primary:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH='$${REDIS_PASSWORD}' redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  redis-replica-2:
+    image: redis/redis-stack-server:latest
+    container_name: agora-redis-replica-2
+    restart: unless-stopped
+    env_file:
+      - .env
+    command:
+      - redis-stack-server
+      - --port
+      - "6379"
+      - --requirepass
+      - ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      - --masterauth
+      - ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      - --replicaof
+      - redis-primary
+      - "6379"
+      - --appendonly
+      - "yes"
+      - --protected-mode
+      - "no"
+      - --aclfile
+      - /data/users.acl
+    volumes:
+      - redis_replica_2_data:/data
+    networks:
+      - redis-ha
+    depends_on:
+      redis-primary:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH='$${REDIS_PASSWORD}' redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  redis-sentinel-1:
+    image: redis/redis-stack-server:latest
+    container_name: agora-redis-sentinel-1
+    restart: unless-stopped
+    env_file:
+      - .env
+    entrypoint: ["/bin/sh", "/usr/local/bin/sentinel-entrypoint.sh"]
+    ports:
+      - "${REDIS_BIND_IP:-127.0.0.1}:26379:26379"
+    volumes:
+      - ./sentinel-entrypoint.sh:/usr/local/bin/sentinel-entrypoint.sh:ro
+      - redis_sentinel_1_data:/data
+    networks:
+      - redis-ha
+    depends_on:
+      redis-primary:
+        condition: service_healthy
+
+  redis-sentinel-2:
+    image: redis/redis-stack-server:latest
+    container_name: agora-redis-sentinel-2
+    restart: unless-stopped
+    env_file:
+      - .env
+    entrypoint: ["/bin/sh", "/usr/local/bin/sentinel-entrypoint.sh"]
+    ports:
+      - "${REDIS_BIND_IP:-127.0.0.1}:26380:26379"
+    volumes:
+      - ./sentinel-entrypoint.sh:/usr/local/bin/sentinel-entrypoint.sh:ro
+      - redis_sentinel_2_data:/data
+    networks:
+      - redis-ha
+    depends_on:
+      redis-primary:
+        condition: service_healthy
+
+  redis-sentinel-3:
+    image: redis/redis-stack-server:latest
+    container_name: agora-redis-sentinel-3
+    restart: unless-stopped
+    env_file:
+      - .env
+    entrypoint: ["/bin/sh", "/usr/local/bin/sentinel-entrypoint.sh"]
+    ports:
+      - "${REDIS_BIND_IP:-127.0.0.1}:26381:26379"
+    volumes:
+      - ./sentinel-entrypoint.sh:/usr/local/bin/sentinel-entrypoint.sh:ro
+      - redis_sentinel_3_data:/data
+    networks:
+      - redis-ha
+    depends_on:
+      redis-primary:
+        condition: service_healthy
+
+  redis-insight:
+    image: redis/redisinsight:latest
+    container_name: agora-redis-insight
+    restart: unless-stopped
+    ports:
+      - "${REDIS_INSIGHT_PORT:-8001}:5540"
+    volumes:
+      - redis_insight_data:/data
+    networks:
+      - redis-ha
+
+volumes:
+  redis_primary_data:
+  redis_replica_1_data:
+  redis_replica_2_data:
+  redis_sentinel_1_data:
+  redis_sentinel_2_data:
+  redis_sentinel_3_data:
+  redis_insight_data:
+
+networks:
+  redis-ha:
+    name: agora-redis-ha

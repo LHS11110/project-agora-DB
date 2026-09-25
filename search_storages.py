@@ -178,12 +178,25 @@ def search_redis(query_keyword: str = ""):
     print(f"{CYAN}[3/3] Redis Stack 키 및 JSON 데이터 조회 ({REDIS_HOST}:{REDIS_PORT}){RESET}")
 
     def run_cli(*args) -> str:
-        cmd = [
-            "docker", "exec",
-            "-e", f"REDISCLI_AUTH={REDIS_ADMIN_PASS}",
-            "agora-redis-stack",
-            "redis-cli"
-        ] + list(args)
+        cluster_running = False
+        for container in ("agora-redis-primary", "agora-redis-node"):
+            cluster_state = subprocess.run(
+                ["docker", "inspect", "-f", "{{.State.Running}}", container],
+                capture_output=True, text=True
+            )
+            if cluster_state.stdout.strip() == "true":
+                cluster_running = True
+                break
+        if cluster_running:
+            cmd = ["bash", str(ROOT_DIR / "redis" / "redis-ha-cli.sh"), *args]
+        else:
+            cmd = [
+                "docker", "exec",
+                "-e", f"REDISCLI_AUTH={REDIS_ADMIN_PASS}",
+                "agora-redis-stack",
+                "redis-cli",
+                *args,
+            ]
         res = subprocess.run(cmd, capture_output=True, text=True, check=True)
         return res.stdout.strip()
 

@@ -184,18 +184,35 @@ def clean_redis() -> bool:
     print(f"\n{YELLOW}[3/3] Redis Stack 데이터 삭제 중... ({REDIS_USER}@{REDIS_HOST}:{REDIS_PORT}){RESET}")
     print(f"  - 네임스페이스(Prefix): {REDIS_KEY_PREFIX}*, 인덱스: {REDIS_INDEX_NAME}")
 
+    redis_ha_running = False
+    try:
+        for container in ("agora-redis-primary", "agora-redis-node"):
+            cluster_state = subprocess.run(
+                ["docker", "inspect", "-f", "{{.State.Running}}", container],
+                capture_output=True, text=True
+            )
+            if cluster_state.stdout.strip() == "true":
+                redis_ha_running = True
+                break
+    except OSError:
+        pass
+
     def run_cli_cmd(*args) -> str:
-        cmd = [
-            "docker", "exec",
-            "-e", f"REDISCLI_AUTH={REDIS_ADMIN_PASS}",
-            "agora-redis-stack",
-            "redis-cli"
-        ] + list(args)
+        if redis_ha_running:
+            cmd = ["bash", str(ROOT_DIR / "redis" / "redis-ha-cli.sh"), *args]
+        else:
+            cmd = [
+                "docker", "exec",
+                "-e", f"REDISCLI_AUTH={REDIS_ADMIN_PASS}",
+                "agora-redis-stack",
+                "redis-cli",
+                *args,
+            ]
         res = subprocess.run(cmd, capture_output=True, text=True, check=True)
         return res.stdout.strip()
 
     try:
-        if redis_lib is not None:
+        if redis_lib is not None and not redis_ha_running:
             r = redis_lib.Redis(
                 host=REDIS_HOST,
                 port=int(REDIS_PORT),

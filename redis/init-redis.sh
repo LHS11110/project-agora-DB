@@ -44,10 +44,22 @@ if command -v redis-cli &> /dev/null; then
   }
 else
   run_admin_cli() {
-    docker exec -e REDISCLI_AUTH="$REDIS_ADMIN_PASS" agora-redis-stack redis-cli "$@"
+    if [ "$(docker inspect -f '{{.State.Running}}' agora-redis-primary 2>/dev/null || true)" = "true" ]; then
+      docker exec -e REDISCLI_AUTH="$REDIS_ADMIN_PASS" agora-redis-primary redis-cli "$@"
+    elif [ "$(docker inspect -f '{{.State.Running}}' agora-redis-node 2>/dev/null || true)" = "true" ]; then
+      docker exec -e REDISCLI_AUTH="$REDIS_ADMIN_PASS" agora-redis-node redis-cli "$@"
+    else
+      docker exec -e REDISCLI_AUTH="$REDIS_ADMIN_PASS" agora-redis-stack redis-cli "$@"
+    fi
   }
   run_user_cli() {
-    docker exec agora-redis-stack redis-cli --user "$REDIS_USER" -a "$REDIS_USER_PASS" --no-auth-warning "$@"
+    if [ "$(docker inspect -f '{{.State.Running}}' agora-redis-primary 2>/dev/null || true)" = "true" ]; then
+      docker exec agora-redis-primary redis-cli --user "$REDIS_USER" -a "$REDIS_USER_PASS" --no-auth-warning "$@"
+    elif [ "$(docker inspect -f '{{.State.Running}}' agora-redis-node 2>/dev/null || true)" = "true" ]; then
+      docker exec agora-redis-node redis-cli --user "$REDIS_USER" -a "$REDIS_USER_PASS" --no-auth-warning "$@"
+    else
+      docker exec agora-redis-stack redis-cli --user "$REDIS_USER" -a "$REDIS_USER_PASS" --no-auth-warning "$@"
+    fi
   }
 fi
 
