@@ -5,6 +5,7 @@
 # ==============================================================================
 
 set -e
+set -o pipefail
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -15,6 +16,10 @@ NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+MSSQL_HOST_OVERRIDE="${MSSQL_TEST_HOST:-${DB_HOST:-${MSSQL_HOST:-}}}"
+MSSQL_PORT_OVERRIDE="${MSSQL_TEST_PORT:-${DB_PORT:-${MSSQL_PORT:-}}}"
+DB_ENCRYPT_OVERRIDE="${DB_ENCRYPT:-}"
+DB_TRUST_CERT_OVERRIDE="${DB_TRUST_SERVER_CERTIFICATE:-}"
 
 FORCE_CONFIRM=false
 RE_REGISTER_REDIS=true
@@ -41,15 +46,6 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [ "$FORCE_CONFIRM" = false ]; then
-  echo -e "${YELLOW}⚠️  [경고] MS SQL ($MSSQL_DB) 내 모든 테이블 데이터가 삭제됩니다.${NC}"
-  read -r -p "정말로 삭제하시겠습니까? [y/N]: " USER_INPUT
-  if [[ ! "$USER_INPUT" =~ ^[yY]([eE][sS])?$ ]]; then
-    echo "작업이 취소되었습니다."
-    exit 0
-  fi
-fi
-
 # .env 로드
 if [ -f "$SCRIPT_DIR/.env" ]; then
   ENV_FILE="$SCRIPT_DIR/.env"
@@ -75,6 +71,8 @@ if [ -n "$ENV_FILE" ]; then
   MSSQL_DB=$(grep -v '^#' "$ENV_FILE" | grep 'MSSQL_DB=' | cut -d '=' -f2- | tr -d '\r' || echo "agora_db")
   MSSQL_USER=$(grep -v '^#' "$ENV_FILE" | grep 'MSSQL_USER=' | cut -d '=' -f2- | tr -d '\r' || echo "agora_user")
   MSSQL_PASS=$(grep -v '^#' "$ENV_FILE" | grep 'MSSQL_PASSWORD=' | cut -d '=' -f2- | tr -d '\r' || echo "")
+  DB_TRUST_SERVER_CERTIFICATE=$(grep -v '^#' "$ENV_FILE" | grep '^DB_TRUST_SERVER_CERTIFICATE=' | cut -d '=' -f2- | tr -d '\r' || true)
+  DB_ENCRYPT=$(grep -v '^#' "$ENV_FILE" | grep '^DB_ENCRYPT=' | cut -d '=' -f2- | tr -d '\r' || true)
   MSSQL_TABLE_USERS=$(grep -v '^#' "$ENV_FILE" | grep 'MSSQL_TABLE_USERS=' | cut -d '=' -f2- | tr -d '\r' || echo "users")
   MSSQL_TABLE_REDIS_SERVER=$(grep -v '^#' "$ENV_FILE" | grep 'MSSQL_TABLE_REDIS_SERVER=' | cut -d '=' -f2- | tr -d '\r' || echo "redis_server")
   MSSQL_TABLE_CANVAS_INFO=$(grep -v '^#' "$ENV_FILE" | grep 'MSSQL_TABLE_CANVAS_INFO=' | cut -d '=' -f2- | tr -d '\r' || echo "canvas_info")
@@ -85,21 +83,49 @@ else
   MSSQL_DB="agora_db"
   MSSQL_USER="agora_user"
   MSSQL_PASS=""
+  DB_TRUST_SERVER_CERTIFICATE="false"
+  DB_ENCRYPT="true"
   MSSQL_TABLE_USERS="users"
   MSSQL_TABLE_REDIS_SERVER="redis_server"
   MSSQL_TABLE_CANVAS_INFO="canvas_info"
   MSSQL_TABLE_CPP_SERVER="cpp_server"
 fi
 
+if [ -n "$MSSQL_HOST_OVERRIDE" ]; then
+  MSSQL_HOST="$MSSQL_HOST_OVERRIDE"
+  if [ "$MSSQL_HOST" = "0.0.0.0" ]; then MSSQL_HOST="127.0.0.1"; fi
+fi
+if [ -n "$MSSQL_PORT_OVERRIDE" ]; then MSSQL_PORT="$MSSQL_PORT_OVERRIDE"; fi
+if [ -n "$DB_ENCRYPT_OVERRIDE" ]; then DB_ENCRYPT="$DB_ENCRYPT_OVERRIDE"; fi
+if [ -n "$DB_TRUST_CERT_OVERRIDE" ]; then DB_TRUST_SERVER_CERTIFICATE="$DB_TRUST_CERT_OVERRIDE"; fi
+if [ "$FORCE_CONFIRM" = false ]; then
+  echo -e "${YELLOW}⚠️  [경고] MS SQL ($MSSQL_DB) 내 모든 테이블 데이터가 삭제됩니다.${NC}"
+  read -r -p "정말로 삭제하시겠습니까? [y/N]: " USER_INPUT
+  if [[ ! "$USER_INPUT" =~ ^[yY]([eE][sS])?$ ]]; then
+    echo "작업이 취소되었습니다."
+    exit 0
+  fi
+fi
+
+if [ -z "$DB_TRUST_SERVER_CERTIFICATE" ]; then DB_TRUST_SERVER_CERTIFICATE="false"; fi
+if [ -z "$DB_ENCRYPT" ]; then DB_ENCRYPT="true"; fi
+SQLCMD_TLS_ARGS=()
+if [ "$DB_ENCRYPT" != "false" ]; then SQLCMD_TLS_ARGS+=(-N); fi
+if [ "$DB_TRUST_SERVER_CERTIFICATE" = "true" ]; then SQLCMD_TLS_ARGS+=(-C); fi
+
 echo -e "${YELLOW}MS SQL Server 데이터 삭제 중... ($MSSQL_USER@$MSSQL_HOST:$MSSQL_PORT/$MSSQL_DB)${NC}"
 
 run_mssql_cmd() {
   local query="$1"
   if command -v sqlcmd &> /dev/null; then
-    sqlcmd -S "$MSSQL_HOST,$MSSQL_PORT" -U "$MSSQL_USER" -P "$MSSQL_PASS" -C -I -d "$MSSQL_DB" -Q "$query" -W -h -1 2>&1
-  else
+    sqlcmd -S "$MSSQL_HOST,$MSSQL_PORT" -U "$MSSQL_USER" -P "$MSSQL_PASS" "${SQLCMD_TLS_ARGS[@]}" -b -I -d "$MSSQL_DB" -Q "$query" -W -h -1 2>&1
+  elif [[ "$MSSQL_HOST" == "127.0.0.1" || "$MSSQL_HOST" == "localhost" || "$MSSQL_HOST" == "::1" ]] \
+      && docker inspect --format '{{.State.Running}}' agora-mssql 2>/dev/null | grep -q '^true$'; then
     docker exec agora-mssql /opt/mssql-tools18/bin/sqlcmd \
-      -S localhost -U "$MSSQL_USER" -P "$MSSQL_PASS" -C -I -d "$MSSQL_DB" -W -h -1 -Q "$query" 2>&1
+      -S localhost -U "$MSSQL_USER" -P "$MSSQL_PASS" "${SQLCMD_TLS_ARGS[@]}" -b -I -d "$MSSQL_DB" -W -h -1 -Q "$query" 2>&1
+  else
+    echo "[ERROR] sqlcmd is required for the configured SQL Server endpoint $MSSQL_HOST:$MSSQL_PORT. Docker fallback is only available for a running local agora-mssql container." >&2
+    return 127
   fi
 }
 
@@ -123,10 +149,6 @@ BEGIN TRANSACTION;
   DELETE FROM [$MSSQL_TABLE_CPP_SERVER];
   DELETE FROM [$MSSQL_TABLE_REDIS_SERVER];
 
-  IF OBJECT_ID('$MSSQL_TABLE_USERS', 'U') IS NOT NULL DBCC CHECKIDENT ('[$MSSQL_TABLE_USERS]', RESEED, 0);
-  IF OBJECT_ID('$MSSQL_TABLE_CANVAS_INFO', 'U') IS NOT NULL DBCC CHECKIDENT ('[$MSSQL_TABLE_CANVAS_INFO]', RESEED, 0);
-  IF OBJECT_ID('$MSSQL_TABLE_CPP_SERVER', 'U') IS NOT NULL DBCC CHECKIDENT ('[$MSSQL_TABLE_CPP_SERVER]', RESEED, 0);
-  IF OBJECT_ID('$MSSQL_TABLE_REDIS_SERVER', 'U') IS NOT NULL DBCC CHECKIDENT ('[$MSSQL_TABLE_REDIS_SERVER]', RESEED, 0);
 COMMIT TRANSACTION;
 "
 

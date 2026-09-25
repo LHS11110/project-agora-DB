@@ -106,7 +106,7 @@ fi
 echo -e "${CYAN}================================================================${NC}"
 echo -e "${CYAN}              저장소 데이터 일괄 삭제 작업 완료                 ${NC}"
 echo -e "${CYAN}================================================================${NC}"
-echo -e "  - MS SQL Server : 회원/세션/캔버스 데이터 삭제 및 IDENTITY 리셋 완료"
+echo -e "  - MS SQL Server : 회원/세션/캔버스 데이터 삭제 완료"
 if [ "$RE_REGISTER_REDIS" = true ]; then
   echo -e "                    (Redis 엔드포인트 정상 재등록 유지)"
 fi

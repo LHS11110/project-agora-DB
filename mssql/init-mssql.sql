@@ -160,21 +160,96 @@ BEGIN
 END
 ELSE
 BEGIN
-    -- 기존 세션 관련 컬럼 제거
+    -- 기존 users 테이블에 저장된 세션 상태를 제거하기 전에 정규 세션 테이블로 옮긴다.
+    -- 세션 테이블이 없으면 canvas_info 생성 전에도 만들 수 있는 최소 형태로 먼저 생성한다.
+    IF COL_LENGTH('$(TABLE_USERS)', 'cpp_server_id') IS NOT NULL
+       OR COL_LENGTH('$(TABLE_USERS)', 'is_accessed') IS NOT NULL
+       OR COL_LENGTH('$(TABLE_USERS)', 'last_login_at') IS NOT NULL
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'user_sessions')
+        BEGIN
+            CREATE TABLE [user_sessions] (
+                user_id       INT       NOT NULL,
+                cpp_server_id INT       NULL,
+                is_accessed   BIT       NOT NULL CONSTRAINT [DF_user_sessions_is_accessed] DEFAULT 0,
+                last_login_at DATETIME2 NULL,
+                updated_at    DATETIME2 NOT NULL CONSTRAINT [DF_user_sessions_updated_at] DEFAULT SYSUTCDATETIME(),
+                CONSTRAINT [PK_user_sessions] PRIMARY KEY CLUSTERED (user_id),
+                CONSTRAINT [FK_user_sessions_users] FOREIGN KEY (user_id) REFERENCES [$(TABLE_USERS)] (user_id) ON DELETE NO ACTION ON UPDATE NO ACTION,
+                CONSTRAINT [FK_user_sessions_$(TABLE_CPP_SERVER)] FOREIGN KEY (cpp_server_id) REFERENCES [$(TABLE_CPP_SERVER)] (server_id) ON DELETE NO ACTION ON UPDATE NO ACTION
+            );
+        END;
+
+        DECLARE @legacy_cpp_server_id NVARCHAR(100) =
+            CASE WHEN COL_LENGTH('$(TABLE_USERS)', 'cpp_server_id') IS NOT NULL THEN N'u.cpp_server_id' ELSE N'CAST(NULL AS INT)' END;
+        DECLARE @legacy_is_accessed NVARCHAR(100) =
+            CASE WHEN COL_LENGTH('$(TABLE_USERS)', 'is_accessed') IS NOT NULL THEN N'ISNULL(u.is_accessed, 0)' ELSE N'CAST(0 AS BIT)' END;
+        DECLARE @legacy_last_login_at NVARCHAR(100) =
+            CASE WHEN COL_LENGTH('$(TABLE_USERS)', 'last_login_at') IS NOT NULL THEN N'u.last_login_at' ELSE N'CAST(NULL AS DATETIME2)' END;
+        DECLARE @legacy_session_predicate NVARCHAR(500) = N'';
+
+        IF COL_LENGTH('$(TABLE_USERS)', 'cpp_server_id') IS NOT NULL
+            SET @legacy_session_predicate += N' OR u.cpp_server_id IS NOT NULL';
+        IF COL_LENGTH('$(TABLE_USERS)', 'is_accessed') IS NOT NULL
+            SET @legacy_session_predicate += N' OR ISNULL(u.is_accessed, 0) = 1';
+        IF COL_LENGTH('$(TABLE_USERS)', 'last_login_at') IS NOT NULL
+            SET @legacy_session_predicate += N' OR u.last_login_at IS NOT NULL';
+
+        DECLARE @migrate_legacy_sessions NVARCHAR(MAX) =
+            N'INSERT INTO [user_sessions] (user_id, cpp_server_id, is_accessed, last_login_at) ' +
+            N'SELECT u.user_id, ' + @legacy_cpp_server_id + N', ' + @legacy_is_accessed + N', ' + @legacy_last_login_at +
+            N' FROM [$(TABLE_USERS)] AS u WHERE (' + STUFF(@legacy_session_predicate, 1, 4, N'') + N')' +
+            N' AND NOT EXISTS (SELECT 1 FROM [user_sessions] AS s WHERE s.user_id = u.user_id);';
+        EXEC sys.sp_executesql @migrate_legacy_sessions;
+    END;
+
+    -- 이전 세션 FK는 값 복사 후 제거한다.
     IF EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_$(TABLE_USERS)_$(TABLE_CPP_SERVER)')
     BEGIN
         ALTER TABLE [$(TABLE_USERS)] DROP CONSTRAINT [FK_$(TABLE_USERS)_$(TABLE_CPP_SERVER)];
     END;
+    DECLARE @legacy_default_constraint sysname;
+    DECLARE @drop_legacy_default_sql NVARCHAR(500);
     IF COL_LENGTH('$(TABLE_USERS)', 'cpp_server_id') IS NOT NULL
     BEGIN
+        SET @legacy_default_constraint = NULL;
+        SELECT @legacy_default_constraint = d.name
+        FROM sys.default_constraints d
+        JOIN sys.columns c ON d.parent_object_id = c.object_id AND d.parent_column_id = c.column_id
+        WHERE d.parent_object_id = OBJECT_ID('$(TABLE_USERS)') AND c.name = 'cpp_server_id';
+        IF @legacy_default_constraint IS NOT NULL
+        BEGIN
+            SET @drop_legacy_default_sql = N'ALTER TABLE [$(TABLE_USERS)] DROP CONSTRAINT ' + QUOTENAME(@legacy_default_constraint);
+            EXEC sys.sp_executesql @drop_legacy_default_sql;
+        END;
         ALTER TABLE [$(TABLE_USERS)] DROP COLUMN cpp_server_id;
     END;
     IF COL_LENGTH('$(TABLE_USERS)', 'is_accessed') IS NOT NULL
     BEGIN
+        SET @legacy_default_constraint = NULL;
+        SELECT @legacy_default_constraint = d.name
+        FROM sys.default_constraints d
+        JOIN sys.columns c ON d.parent_object_id = c.object_id AND d.parent_column_id = c.column_id
+        WHERE d.parent_object_id = OBJECT_ID('$(TABLE_USERS)') AND c.name = 'is_accessed';
+        IF @legacy_default_constraint IS NOT NULL
+        BEGIN
+            SET @drop_legacy_default_sql = N'ALTER TABLE [$(TABLE_USERS)] DROP CONSTRAINT ' + QUOTENAME(@legacy_default_constraint);
+            EXEC sys.sp_executesql @drop_legacy_default_sql;
+        END;
         ALTER TABLE [$(TABLE_USERS)] DROP COLUMN is_accessed;
     END;
     IF COL_LENGTH('$(TABLE_USERS)', 'last_login_at') IS NOT NULL
     BEGIN
+        SET @legacy_default_constraint = NULL;
+        SELECT @legacy_default_constraint = d.name
+        FROM sys.default_constraints d
+        JOIN sys.columns c ON d.parent_object_id = c.object_id AND d.parent_column_id = c.column_id
+        WHERE d.parent_object_id = OBJECT_ID('$(TABLE_USERS)') AND c.name = 'last_login_at';
+        IF @legacy_default_constraint IS NOT NULL
+        BEGIN
+            SET @drop_legacy_default_sql = N'ALTER TABLE [$(TABLE_USERS)] DROP CONSTRAINT ' + QUOTENAME(@legacy_default_constraint);
+            EXEC sys.sp_executesql @drop_legacy_default_sql;
+        END;
         ALTER TABLE [$(TABLE_USERS)] DROP COLUMN last_login_at;
     END;
 

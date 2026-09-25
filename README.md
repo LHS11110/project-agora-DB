@@ -262,6 +262,14 @@ python3 tests/test_storages.py
 
 `tests/test_storages.py`는 임시 사용자, 캔버스, 문서를 만들고 테스트 종료 시 삭제합니다. 운영 데이터가 있는 환경에서는 테스트 전 백업과 실행 대상 확인이 필요합니다.
 
+tests/test_storages.py는 고유한 임시 ID를 쓰고 직접 만든 행·문서·키만 삭제합니다.
+SQL 검증에는 호스트의 sqlcmd가 필요합니다. 원격 SQL AG listener 검증 시
+MSSQL_TEST_HOST/MSSQL_TEST_PORT 또는 DB_HOST/DB_PORT를 지정할 수 있습니다.
+Elasticsearch는 ES_TEST_HOST/ES_TEST_PORT 또는 ES_HOST/ES_PORT와 TLS용
+ES_SCHEME/ES_CA_CERT를 사용합니다. Redis Sentinel 검증에는 REDIS_SENTINELS를
+설정합니다. SQL 및 Elasticsearch 조회·정리 스크립트는 해당 endpoint와 TLS
+설정을 적용하며 HTTP 오류와 TLS 인증서 검증 실패를 성공으로 처리하지 않습니다.
+
 ## BE 연결 설정
 
 BE 루트 `.env`에는 이 저장소의 애플리케이션 계정 정보를 전달합니다.

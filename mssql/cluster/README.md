@@ -101,7 +101,7 @@ sudo pcs status --full
 sudo pcs resource move <AG-resource>-master <target-pacemaker-node> --master --lifetime=30S
 
 # Connect through the listener and confirm that it routes to the new primary.
-sqlcmd -S tcp:<AG-listener>,<port> -d agora_db -U <application-user> -C \
+sqlcmd -S tcp:<AG-listener>,<port> -d agora_db -U <application-user> \
   -Q "SELECT @@SERVERNAME AS primary_instance, sys.fn_hadr_is_primary_replica(N'agora_db') AS is_primary;"
 
 sudo pcs resource clear <AG-resource>-master
@@ -114,6 +114,9 @@ primary, and an application write through the listener succeeds after the
 existing connection is discarded and recreated. The `--lifetime=30S` option
 limits the temporary move constraint; clear the resource after checking the
 transition. This planned test doesn't simulate node fencing or a host failure.
+Configure the host trust store with the listener certificate's CA and use a
+listener DNS name that matches the certificate; do not bypass certificate
+verification with sqlcmd -C.
 For the required external-cluster failover procedure, see Microsoft's
 [AG failover guide](https://learn.microsoft.com/en-us/sql/linux/business-continuity/availability-groups/failover-high-availability?view=sql-server-ver17).
 

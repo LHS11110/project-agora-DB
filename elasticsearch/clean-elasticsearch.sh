@@ -5,6 +5,7 @@
 # ==============================================================================
 
 set -e
+set -o pipefail
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -15,6 +16,11 @@ NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+ES_HOST_OVERRIDE="${ES_TEST_HOST:-${ES_HOST:-}}"
+ES_PORT_OVERRIDE="${ES_TEST_PORT:-${ES_PORT:-}}"
+ES_SCHEME_OVERRIDE="${ES_SCHEME:-}"
+ES_TLS_OVERRIDE="${ES_HTTP_TLS_ENABLED:-}"
+ES_CA_CERT_OVERRIDE="${ES_CA_CERT:-}"
 
 FORCE_CONFIRM=false
 
@@ -53,14 +59,40 @@ if [ -n "$ENV_FILE" ]; then
   ES_INDEX=$(grep -v '^#' "$ENV_FILE" | grep 'ES_INDEX=' | cut -d '=' -f2- | tr -d '\r' || echo "canvas")
   ES_USER=$(grep -v '^#' "$ENV_FILE" | grep 'ES_USER_NAME=' | cut -d '=' -f2- | tr -d '\r' || echo "agora_user")
   ES_PASS=$(grep -v '^#' "$ENV_FILE" | grep 'ES_USER_PASSWORD=' | cut -d '=' -f2- | tr -d '\r' || echo "")
+  ES_SCHEME=$(grep -v '^#' "$ENV_FILE" | grep '^ES_SCHEME=' | cut -d '=' -f2- | tr -d '\r' || true)
+  ES_HTTP_TLS_ENABLED=$(grep -v '^#' "$ENV_FILE" | grep '^ES_HTTP_TLS_ENABLED=' | cut -d '=' -f2- | tr -d '\r' || echo "false")
+  ES_CA_CERT=$(grep -v '^#' "$ENV_FILE" | grep '^ES_CA_CERT=' | cut -d '=' -f2- | tr -d '\r' || true)
 else
   ES_IP="127.0.0.1"
   ES_PORT="9200"
   ES_INDEX="canvas"
   ES_USER="agora_user"
   ES_PASS=""
+  ES_SCHEME=""
+  ES_HTTP_TLS_ENABLED="false"
+  ES_CA_CERT=""
 fi
-ES_URL="http://$ES_IP:$ES_PORT"
+
+if [ -n "$ES_HOST_OVERRIDE" ]; then ES_IP="$ES_HOST_OVERRIDE"; fi
+if [ -n "$ES_PORT_OVERRIDE" ]; then ES_PORT="$ES_PORT_OVERRIDE"; fi
+if [ -n "$ES_SCHEME_OVERRIDE" ]; then ES_SCHEME="$ES_SCHEME_OVERRIDE"; fi
+if [ -n "$ES_TLS_OVERRIDE" ]; then ES_HTTP_TLS_ENABLED="$ES_TLS_OVERRIDE"; fi
+if [ -n "$ES_CA_CERT_OVERRIDE" ]; then ES_CA_CERT="$ES_CA_CERT_OVERRIDE"; fi
+if [ -z "$ES_SCHEME" ]; then
+  if [ "$ES_HTTP_TLS_ENABLED" = "true" ]; then ES_SCHEME="https"; else ES_SCHEME="http"; fi
+fi
+if [ "$ES_SCHEME" != "http" ] && [ "$ES_SCHEME" != "https" ]; then
+  echo "[ERROR] ES_SCHEME must be http or https." >&2
+  exit 1
+fi
+if [ "$ES_HTTP_TLS_ENABLED" = "true" ] && [ "$ES_SCHEME" != "https" ]; then
+  echo "[ERROR] ES_HTTP_TLS_ENABLED=true requires ES_SCHEME=https." >&2
+  exit 1
+fi
+ES_URL="$ES_SCHEME://$ES_IP:$ES_PORT"
+CURL_TLS_ARGS=()
+if [ -n "$ES_CA_CERT" ]; then CURL_TLS_ARGS+=(--cacert "$ES_CA_CERT"); fi
+curl_es() { curl -fsS "${CURL_TLS_ARGS[@]}" "$@"; }
 
 if [ "$FORCE_CONFIRM" = false ]; then
   echo -e "${YELLOW}⚠️  [경고] Elasticsearch ($ES_INDEX 인덱스)의 모든 도큐먼트가 삭제됩니다.${NC}"
@@ -73,14 +105,19 @@ fi
 
 echo -e "${YELLOW}Elasticsearch 데이터 삭제 중... ($ES_USER@$ES_URL, 인덱스: $ES_INDEX)${NC}"
 
-DOC_CNT_BEFORE=$(curl -s -u "$ES_USER:$ES_PASS" "$ES_URL/$ES_INDEX/_count" | grep -o '"count":[0-9]*' | cut -d':' -f2 || echo "0")
+DOC_CNT_BEFORE=$(curl_es -u "$ES_USER:$ES_PASS" "$ES_URL/$ES_INDEX/_count" | grep -o '"count":[0-9]*' | cut -d':' -f2)
 echo "  - 삭제 전 도큐먼트 수: $DOC_CNT_BEFORE 건"
 
-ES_DEL_RESP=$(curl -s -u "$ES_USER:$ES_PASS" -X POST "$ES_URL/$ES_INDEX/_delete_by_query?conflicts=proceed&refresh=true" \
+ES_DEL_RESP=$(curl_es -u "$ES_USER:$ES_PASS" -X POST "$ES_URL/$ES_INDEX/_delete_by_query?conflicts=proceed&refresh=true" \
   -H 'Content-Type: application/json' \
   -d '{"query": {"match_all": {}}}')
 
-DOC_CNT_AFTER=$(curl -s -u "$ES_USER:$ES_PASS" "$ES_URL/$ES_INDEX/_count" | grep -o '"count":[0-9]*' | cut -d':' -f2 || echo "0")
-DELETED_CNT=$(echo "$ES_DEL_RESP" | grep -o '"deleted":[0-9]*' | cut -d':' -f2 || echo "$DOC_CNT_BEFORE")
+DOC_CNT_AFTER=$(curl_es -u "$ES_USER:$ES_PASS" "$ES_URL/$ES_INDEX/_count" | grep -o '"count":[0-9]*' | cut -d':' -f2)
+DELETED_CNT=$(echo "$ES_DEL_RESP" | grep -o '"deleted":[0-9]*' | cut -d':' -f2)
+
+if [ "$DOC_CNT_AFTER" -ne 0 ]; then
+  echo "[ERROR] Elasticsearch cleanup left $DOC_CNT_AFTER document(s) in index $ES_INDEX." >&2
+  exit 1
+fi
 
 echo -e "  [${GREEN}OK${NC}] Elasticsearch 인덱스($ES_INDEX) 도큐먼트 $DELETED_CNT건 삭제 완료 (현재 도큐먼트: $DOC_CNT_AFTER 건)\n"

@@ -5,6 +5,7 @@
 # ==============================================================================
 
 set -e
+set -o pipefail
 
 # 색상 정의
 RED='\033[0;31m'
@@ -16,6 +17,11 @@ NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+ES_HOST_OVERRIDE="${ES_TEST_HOST:-${ES_HOST:-}}"
+ES_PORT_OVERRIDE="${ES_TEST_PORT:-${ES_PORT:-}}"
+ES_SCHEME_OVERRIDE="${ES_SCHEME:-}"
+ES_TLS_OVERRIDE="${ES_HTTP_TLS_ENABLED:-}"
+ES_CA_CERT_OVERRIDE="${ES_CA_CERT:-}"
 
 # .env 로드
 if [ -f "$SCRIPT_DIR/.env" ]; then
@@ -36,14 +42,40 @@ if [ -n "$ENV_FILE" ]; then
   ES_INDEX=$(grep -v '^#' "$ENV_FILE" | grep 'ES_INDEX=' | cut -d '=' -f2- | tr -d '\r' || echo "canvas")
   ES_USER=$(grep -v '^#' "$ENV_FILE" | grep 'ES_USER_NAME=' | cut -d '=' -f2- | tr -d '\r' || echo "agora_user")
   ES_PASS=$(grep -v '^#' "$ENV_FILE" | grep 'ES_USER_PASSWORD=' | cut -d '=' -f2- | tr -d '\r' || echo "")
+  ES_SCHEME=$(grep -v '^#' "$ENV_FILE" | grep '^ES_SCHEME=' | cut -d '=' -f2- | tr -d '\r' || true)
+  ES_HTTP_TLS_ENABLED=$(grep -v '^#' "$ENV_FILE" | grep '^ES_HTTP_TLS_ENABLED=' | cut -d '=' -f2- | tr -d '\r' || echo "false")
+  ES_CA_CERT=$(grep -v '^#' "$ENV_FILE" | grep '^ES_CA_CERT=' | cut -d '=' -f2- | tr -d '\r' || true)
 else
   ES_IP="127.0.0.1"
   ES_PORT="9200"
   ES_INDEX="canvas"
   ES_USER="agora_user"
   ES_PASS=""
+  ES_SCHEME=""
+  ES_HTTP_TLS_ENABLED="false"
+  ES_CA_CERT=""
 fi
-ES_URL="http://$ES_IP:$ES_PORT"
+
+if [ -n "$ES_HOST_OVERRIDE" ]; then ES_IP="$ES_HOST_OVERRIDE"; fi
+if [ -n "$ES_PORT_OVERRIDE" ]; then ES_PORT="$ES_PORT_OVERRIDE"; fi
+if [ -n "$ES_SCHEME_OVERRIDE" ]; then ES_SCHEME="$ES_SCHEME_OVERRIDE"; fi
+if [ -n "$ES_TLS_OVERRIDE" ]; then ES_HTTP_TLS_ENABLED="$ES_TLS_OVERRIDE"; fi
+if [ -n "$ES_CA_CERT_OVERRIDE" ]; then ES_CA_CERT="$ES_CA_CERT_OVERRIDE"; fi
+if [ -z "$ES_SCHEME" ]; then
+  if [ "$ES_HTTP_TLS_ENABLED" = "true" ]; then ES_SCHEME="https"; else ES_SCHEME="http"; fi
+fi
+if [ "$ES_SCHEME" != "http" ] && [ "$ES_SCHEME" != "https" ]; then
+  echo "[ERROR] ES_SCHEME must be http or https." >&2
+  exit 1
+fi
+if [ "$ES_HTTP_TLS_ENABLED" = "true" ] && [ "$ES_SCHEME" != "https" ]; then
+  echo "[ERROR] ES_HTTP_TLS_ENABLED=true requires ES_SCHEME=https." >&2
+  exit 1
+fi
+ES_URL="$ES_SCHEME://$ES_IP:$ES_PORT"
+CURL_TLS_ARGS=()
+if [ -n "$ES_CA_CERT" ]; then CURL_TLS_ARGS+=(--cacert "$ES_CA_CERT"); fi
+curl_es() { curl -fsS "${CURL_TLS_ARGS[@]}" "$@"; }
 
 SEARCH_KEYWORD=""
 DOC_ID=""
@@ -93,7 +125,7 @@ fi
 echo -e "${CYAN}================================================================${NC}\n"
 
 # 1. 인덱스 존재 및 도큐먼트 수 확인
-TOTAL_DOCS=$(curl -s -u "$ES_USER:$ES_PASS" "$ES_URL/$ES_INDEX/_count" | grep -o '"count":[0-9]*' | cut -d':' -f2 || echo "0")
+TOTAL_DOCS=$(curl_es -u "$ES_USER:$ES_PASS" "$ES_URL/$ES_INDEX/_count" | grep -o '"count":[0-9]*' | cut -d':' -f2)
 echo -e "${YELLOW}▶ 인덱스 상태: [$ES_INDEX]${NC}"
 echo -e "  총 도큐먼트 수: ${BOLD}$TOTAL_DOCS${NC} 건\n"
 
@@ -105,7 +137,7 @@ fi
 # 2. 단건 조회 (-i 옵션)
 if [ -n "$DOC_ID" ]; then
   echo -e "${YELLOW}▶ 도큐먼트 단건 조회: ID [$DOC_ID]${NC}"
-  RESP=$(curl -s -u "$ES_USER:$ES_PASS" "$ES_URL/$ES_INDEX/_doc/$DOC_ID")
+  RESP=$(curl_es -u "$ES_USER:$ES_PASS" "$ES_URL/$ES_INDEX/_doc/$DOC_ID")
   if echo "$RESP" | grep -q '"found":true'; then
     echo "$RESP" | python3 -m json.tool 2>/dev/null || echo "$RESP"
   else
@@ -143,7 +175,7 @@ EOF
 )
 fi
 
-RESP=$(curl -s -u "$ES_USER:$ES_PASS" -X POST "$ES_URL/$ES_INDEX/_search" \
+RESP=$(curl_es -u "$ES_USER:$ES_PASS" -X POST "$ES_URL/$ES_INDEX/_search" \
   -H 'Content-Type: application/json' \
   -d "$SEARCH_PAYLOAD")
 

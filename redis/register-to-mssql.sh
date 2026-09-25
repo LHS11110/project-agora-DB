@@ -9,6 +9,8 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+DB_ENCRYPT_OVERRIDE="${DB_ENCRYPT:-}"
+DB_TRUST_CERT_OVERRIDE="${DB_TRUST_SERVER_CERTIFICATE:-}"
 
 # 1. MS SQL 환경 변수 기본값 로드 (mssql/.env 우선 참조)
 if [ -f "$ROOT_DIR/mssql/.env" ]; then
@@ -24,6 +26,8 @@ if [ -f "$ROOT_DIR/mssql/.env" ]; then
   MSSQL_ENV_USER=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep 'MSSQL_USER=' | cut -d '=' -f2- | tr -d '\r' || true)
   MSSQL_ENV_PASS=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep 'MSSQL_PASSWORD=' | cut -d '=' -f2- | tr -d '\r' || true)
   MSSQL_ENV_TABLE=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep 'MSSQL_TABLE_REDIS_SERVER=' | cut -d '=' -f2- | tr -d '\r' || true)
+  MSSQL_ENV_DB_ENCRYPT=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep '^DB_ENCRYPT=' | cut -d '=' -f2- | tr -d '\r' || true)
+  MSSQL_ENV_TRUST_CERT=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep '^DB_TRUST_SERVER_CERTIFICATE=' | cut -d '=' -f2- | tr -d '\r' || true)
 fi
 
 # 2. Redis 환경 변수 로드 (redis/.env)
@@ -37,18 +41,25 @@ fi
 REDIS_IP="${REDIS_EXTERNAL_IP:-127.0.0.1}"
 REDIS_EXT_PORT="${REDIS_EXTERNAL_PORT:-${REDIS_PORT:-6379}}"
 
-MSSQL_RAW_HOST="${MSSQL_HOST:-${MSSQL_ENV_HOST:-127.0.0.1}}"
+MSSQL_RAW_HOST="${MSSQL_TEST_HOST:-${DB_HOST:-${MSSQL_HOST:-${MSSQL_ENV_HOST:-127.0.0.1}}}}"
 if [ "$MSSQL_RAW_HOST" = "0.0.0.0" ]; then
   MSSQL_HOST="127.0.0.1"
 else
   MSSQL_HOST="$MSSQL_RAW_HOST"
 fi
-MSSQL_PORT="${MSSQL_PORT:-${MSSQL_ENV_PORT:-1433}}"
+MSSQL_PORT="${MSSQL_TEST_PORT:-${DB_PORT:-${MSSQL_PORT:-${MSSQL_ENV_PORT:-1433}}}}"
 MSSQL_DB="${MSSQL_DB:-${MSSQL_ENV_DB:-agora_db}}"
 MSSQL_USER="${MSSQL_USER:-${MSSQL_ENV_USER:-agora_user}}"
 MSSQL_PASS="${MSSQL_PASSWORD:-${MSSQL_ENV_PASS:-}}"
 : "${MSSQL_PASS:?MSSQL_PASSWORD must be configured in mssql/.env or the environment}"
 MSSQL_TABLE="${MSSQL_TABLE_REDIS_SERVER:-${MSSQL_ENV_TABLE:-redis_server}}"
+DB_ENCRYPT="${MSSQL_ENV_DB_ENCRYPT:-true}"
+DB_TRUST_SERVER_CERTIFICATE="${MSSQL_ENV_TRUST_CERT:-false}"
+if [ -n "$DB_ENCRYPT_OVERRIDE" ]; then DB_ENCRYPT="$DB_ENCRYPT_OVERRIDE"; fi
+if [ -n "$DB_TRUST_CERT_OVERRIDE" ]; then DB_TRUST_SERVER_CERTIFICATE="$DB_TRUST_CERT_OVERRIDE"; fi
+SQLCMD_TLS_ARGS=()
+if [ "$DB_ENCRYPT" != "false" ]; then SQLCMD_TLS_ARGS+=(-N); fi
+if [ "$DB_TRUST_SERVER_CERTIFICATE" = "true" ]; then SQLCMD_TLS_ARGS+=(-C); fi
 
 echo "=================================================================="
 echo "  Agora Redis -> MS SQL External Endpoint Registration"
@@ -63,10 +74,14 @@ echo "=================================================================="
 run_mssql_cmd() {
   local sql_query="$1"
   if command -v sqlcmd &> /dev/null; then
-    sqlcmd -S "$MSSQL_HOST,$MSSQL_PORT" -U "$MSSQL_USER" -P "$MSSQL_PASS" -C -I -d "$MSSQL_DB" -Q "$sql_query" -W
-  else
+    sqlcmd -S "$MSSQL_HOST,$MSSQL_PORT" -U "$MSSQL_USER" -P "$MSSQL_PASS" "${SQLCMD_TLS_ARGS[@]}" -b -I -d "$MSSQL_DB" -Q "$sql_query" -W
+  elif [[ "$MSSQL_HOST" == "127.0.0.1" || "$MSSQL_HOST" == "localhost" || "$MSSQL_HOST" == "::1" ]] \
+      && docker inspect --format '{{.State.Running}}' agora-mssql 2>/dev/null | grep -q '^true$'; then
     docker exec agora-mssql /opt/mssql-tools18/bin/sqlcmd \
-      -S localhost -U "$MSSQL_USER" -P "$MSSQL_PASS" -C -I -d "$MSSQL_DB" -Q "$sql_query" -W
+      -S localhost -U "$MSSQL_USER" -P "$MSSQL_PASS" "${SQLCMD_TLS_ARGS[@]}" -b -I -d "$MSSQL_DB" -Q "$sql_query" -W
+  else
+    echo "[ERROR] sqlcmd is required for the configured SQL Server endpoint $MSSQL_HOST:$MSSQL_PORT. Docker fallback is only available for a running local agora-mssql container." >&2
+    return 127
   fi
 }
 
