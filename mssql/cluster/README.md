@@ -89,3 +89,39 @@ for the host-specific Pacemaker commands. See the [SQL Server container HA
 overview](https://learn.microsoft.com/en-us/sql/linux/business-continuity/containers/high-availability-overview?view=sql-server-ver17)
 for supported container patterns. Fencing and listener IP values depend on
 the target network and are intentionally not guessed here.
+
+## Planned failover exercise
+
+Run this on an AG Pacemaker node after confirming that the target data replica
+is online and synchronous. For `CLUSTER_TYPE = EXTERNAL`, use Pacemaker for the
+planned move; don't issue `ALTER AVAILABILITY GROUP ... FAILOVER` directly.
+
+```bash
+sudo pcs status --full
+sudo pcs resource move <AG-resource>-master <target-pacemaker-node> --master --lifetime=30S
+
+# Connect through the listener and confirm that it routes to the new primary.
+sqlcmd -S tcp:<AG-listener>,<port> -d agora_db -U <application-user> -C \
+  -Q "SELECT @@SERVERNAME AS primary_instance, sys.fn_hadr_is_primary_replica(N'agora_db') AS is_primary;"
+
+sudo pcs resource clear <AG-resource>-master
+sudo pcs status --full
+```
+
+Use the promotable resource name and node name shown by `pcs status` for the
+actual cluster. Confirm `is_primary = 1`, the listener is online on the new
+primary, and an application write through the listener succeeds after the
+existing connection is discarded and recreated. The `--lifetime=30S` option
+limits the temporary move constraint; clear the resource after checking the
+transition. This planned test doesn't simulate node fencing or a host failure.
+For the required external-cluster failover procedure, see Microsoft's
+[AG failover guide](https://learn.microsoft.com/en-us/sql/linux/business-continuity/availability-groups/failover-high-availability?view=sql-server-ver17).
+
+To exercise automatic host-failure handling, use an isolated staging cluster
+with working quorum and fencing. Record the current primary, then power off
+that SQL host or VM through the infrastructure control plane. Confirm that
+Pacemaker fences the failed node, promotes the synchronous data replica, and
+moves the listener; verify `is_primary = 1` through the listener and send a
+write through the application. Restore the failed host and wait for the
+replica to synchronize before ending the exercise. This scenario tests host
+failure and fencing; a planned `pcs resource move` does not.

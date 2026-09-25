@@ -11,7 +11,7 @@ Project Agora의 저장소 인프라입니다. 기본 Docker Compose 구성은 �
 | MS SQL Server 2022 | 사용자, 세션, 캔버스 배정, C++·Redis 서버 메타데이터 | `agora-mssql` | `1433` |
 | Redis Stack | 활성 캔버스 RedisJSON, RediSearch | `agora-redis-stack` | `6379` |
 | Redis Insight | Redis 관리 UI | `agora-redis-stack` | `8001` |
-| Elasticsearch 8.15 | 캔버스 문서 영구 저장과 검색 | `agora-elasticsearch` | `9200` |
+| Elasticsearch 8.15 | 캔버스 문서, 백엔드 애플리케이션 로그 | `agora-elasticsearch` | `9200` |
 
 기본 단일 노드 구성의 세 서비스는 Compose 네트워크 `agora-net`을 공유합니다. 기본값은 호스트의 loopback에만 DB, Redis, Elasticsearch를 바인딩합니다. HA 구성은 별도 Compose 네트워크와 노드 구성을 사용합니다.
 
@@ -23,14 +23,14 @@ flowchart LR
     MSSQL -->|redis_server 배정 정보| Redis
     MSSQL -->|cpp_server heartbeat·canvas_info| BE
     Redis -->|활성 캔버스 문서| BE
-    BE -->|언로드 시 영구 저장| ES
+    BE -->|캔버스 영구 저장·애플리케이션 로그| ES
 ```
 
 ## 빠른 시작
 
 ### 1. 환경 파일 준비
 
-각 서비스는 독립 환경 파일을 사용합니다. 예시 파일을 복사한 뒤 모든 `change-me` 값을 충분히 긴 난수로 교체합니다.
+각 서비스는 독립 환경 파일을 사용합니다. 예시 파일을 복사한 뒤 모든 `change-me` 값을 충분히 긴 난수로 교체합니다. 예를 들어 `openssl rand -hex 32`로 각 비밀번호를 따로 생성할 수 있습니다.
 
 ```bash
 cd /path/to/project-agora-DB
@@ -44,9 +44,9 @@ chmod 600 mssql/.env redis/.env elasticsearch/.env
 | --- | --- |
 | `mssql/.env` | `MSSQL_SA_PASSWORD`, `MSSQL_PASSWORD` |
 | `redis/.env` | `REDIS_PASSWORD`, `REDIS_USER_PASSWORD` |
-| `elasticsearch/.env` | `ELASTIC_PASSWORD`, `ES_USER_PASSWORD` |
+| `elasticsearch/.env` | `ELASTIC_PASSWORD`, `ES_USER_PASSWORD`, `ES_LOG_USER_PASSWORD` |
 
-비밀번호는 Git에 추가하지 않습니다. BE의 `DB_PASSWORD`, `REDIS_USER_PASSWORD`, `ES_USER_PASSWORD`는 이 저장소의 애플리케이션 사용자 비밀번호와 일치해야 합니다.
+비밀번호는 Git에 추가하지 않습니다. BE의 `DB_PASSWORD`, `REDIS_USER_PASSWORD`, `ES_USER_PASSWORD`, `ES_LOG_USER_PASSWORD`는 이 저장소의 해당 애플리케이션 계정 비밀번호와 일치해야 합니다. 예시 비밀번호는 실제 배포 전에 안전한 난수로 교체합니다.
 
 ### 2. 컨테이너 실행
 
@@ -103,6 +103,39 @@ docker compose --env-file redis/.env -f redis/docker-compose.sentinel.yml up -d
 
 백엔드가 처리할 구체적인 연결 및 장애조치 요구 사항은 [백엔드 클러스터 전환 요구 사항](#백엔드-클러스터-전환-요구-사항)을 참고하세요.
 
+## 장애조치 시험
+
+### Redis Sentinel 로컬 시험
+
+단일 호스트에서 Redis primary 장애 감지, Sentinel 승격, 복귀 replica 동기화를 확인합니다. 기본 단일 노드 Redis가 포트 `6379`를 사용 중이면 먼저 중지한 뒤 실행합니다.
+
+```bash
+docker compose stop redis-stack
+docker compose --env-file redis/.env -f redis/docker-compose.sentinel.yml up -d
+./redis/init-redis-sentinel.sh
+./redis/test-failover.sh
+```
+
+시험 스크립트는 현재 primary를 찾아 임시 캔버스 JSON을 애플리케이션 ACL 계정으로 저장하고 두 replica에 복제될 때까지 기다립니다. 그 다음 primary 컨테이너를 중지해 자동 failover를 유도하고, 세 Sentinel의 primary 조회 결과와 승격 후 RedisJSON/RediSearch 접근을 확인합니다. 원래 primary를 다시 시작해 3노드가 복구되는지 확인한 뒤 임시 키를 삭제합니다. 이 스크립트는 로컬 `docker-compose.sentinel.yml` 전용이며, 실제 서비스 노드에서 실행하지 않습니다. 자세한 구성은 [Redis Sentinel 시험·마이그레이션 안내](redis/cluster/README.md)를 참고하세요.
+
+### SQL Server AG 계획된 시험
+
+SQL Server AG는 Pacemaker가 관리하므로 AG 리소스가 있는 Linux 호스트에서 Pacemaker 명령으로 계획된 failover를 실행합니다. 먼저 두 데이터 replica가 online이고 승격 대상이 synchronous 상태인지, listener를 통해 DB에 접속되는지 확인합니다. 계획된 전환에는 아래처럼 실제 Pacemaker 리소스 이름과 대상 노드 이름을 사용합니다.
+
+```bash
+sudo pcs status --full
+sudo pcs resource move <AG-resource>-master <target-pacemaker-node> --master --lifetime=30S
+
+# listener를 통해 새 primary를 확인 (접속 인자와 비밀번호는 환경에 맞게 전달)
+sqlcmd -S tcp:<AG-listener>,<port> -d agora_db -U <user> -C \
+  -Q "SELECT @@SERVERNAME AS primary_instance, sys.fn_hadr_is_primary_replica(N'agora_db') AS is_primary;"
+
+sudo pcs resource clear <AG-resource>-master
+sudo pcs status --full
+```
+
+조회 결과의 `is_primary`가 `1`이고 Pacemaker가 새 primary와 listener를 정상 상태로 보고하는지 확인합니다. 이어서 BE/C++를 통해 DB 쓰기 요청을 보내 끊긴 연결이 listener에 재연결되는지 확인합니다. `CLUSTER_TYPE=EXTERNAL` AG는 SQL `ALTER AVAILABILITY GROUP ... FAILOVER`로 전환하지 않습니다. 비동기 replica로의 forced failover는 데이터 유실 가능성이 있으므로 일반 시험 절차로 사용하지 않습니다. Pacemaker fencing이 동작하는 격리된 스테이징 환경에서는 primary 호스트를 종료해 자동 failover도 별도로 확인할 수 있습니다. 배포 환경에 맞춘 절차는 [SQL Server AG 안내](mssql/cluster/README.md)에 있습니다.
+
 ## 환경 변수
 
 ### MS SQL Server — `mssql/.env`
@@ -138,6 +171,8 @@ docker compose --env-file redis/.env -f redis/docker-compose.sentinel.yml up -d
 | `TIMEZONE` | 컨테이너 시간대 |
 | `ES_INDEX` | 캔버스 인덱스, 기본 `canvas` |
 | `ES_USER_NAME`, `ES_USER_PASSWORD` | BE·C++가 사용하는 애플리케이션 사용자 |
+| `ES_LOG_INDEX` | BE 로그 인덱스, 기본 `agora-logs` |
+| `ES_LOG_USER_NAME`, `ES_LOG_USER_PASSWORD` | 로그 인덱스에 문서 추가만 가능한 별도 BE 계정 |
 | `ES_EXTERNAL_IP`, `ES_EXTERNAL_PORT` | 호스트 포트 바인딩 |
 | `ES_JAVA_MIN_MEM`, `ES_JAVA_MAX_MEM` | Elasticsearch JVM 메모리 |
 
@@ -224,7 +259,13 @@ ES_PORT=9200
 ES_INDEX=<ES_INDEX>
 ES_USER_NAME=<ES_USER_NAME>
 ES_USER_PASSWORD=<ES_USER_PASSWORD>
+
+ES_LOG_INDEX=<ES_LOG_INDEX>
+ES_LOG_USER_NAME=<ES_LOG_USER_NAME>
+ES_LOG_USER_PASSWORD=<ES_LOG_USER_PASSWORD>
 ```
+
+캔버스 데이터용 `ES_USER_NAME`과 `ES_USER_PASSWORD`는 기존 인덱스에 사용하고, 백엔드 애플리케이션 로그는 MS SQL 스키마와 분리해 별도 `ES_LOG_INDEX`에 `ES_LOG_USER_NAME`/`ES_LOG_USER_PASSWORD`로 기록합니다. 초기화 스크립트가 로그 인덱스와 전용 계정을 생성합니다. 이 역할은 지정된 로그 인덱스에 문서 생성 및 동적 매핑 권한만 가지며 조회·수정·삭제나 다른 인덱스 접근 권한은 없습니다. 로그 전송은 자동 ID 또는 Elasticsearch create/op_type=create 방식으로 append-only 저장해야 하며, 로그 조회는 별도 운영 계정을 사용합니다.
 
 현재 BE와 C++은 DB 등록 정보로 Redis 위치를 찾습니다. 단일 노드에서는 Redis 컨테이너를 시작한 뒤 `./redis/init-redis.sh`를 실행해 Redis 사용자, 색인, `redis_server` 등록을 완료해야 합니다. 클러스터 전환 시 변경할 연결 동작은 아래 요구 사항을 따릅니다.
 

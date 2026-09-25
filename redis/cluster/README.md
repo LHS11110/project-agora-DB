@@ -85,3 +85,21 @@ The repository's maintenance CLI scripts locate the current primary by
 checking the local Redis/Sentinel containers. The existing `redis_server`
 table continues to register the initial primary endpoint; an application that
 must survive failover needs a Sentinel-aware client or a stable proxy endpoint.
+
+Run the local automatic failover exercise after starting and initializing the
+Sentinel lab:
+
+```bash
+docker compose stop redis-stack
+docker compose --env-file redis/.env -f redis/docker-compose.sentinel.yml up -d
+./redis/init-redis-sentinel.sh
+./redis/test-failover.sh
+```
+
+The script uses only the six local lab containers. It waits for the probe
+document to reach both replicas, stops the current primary, checks that all
+three Sentinels report the promoted node, verifies RedisJSON and RediSearch on
+it, restarts the old primary, and waits for all three nodes to return to a
+primary/replica topology. It deletes its temporary probe key after success.
+The test introduces a brief Redis interruption; don't run it against a live
+service.

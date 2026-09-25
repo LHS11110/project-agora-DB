@@ -31,6 +31,20 @@ ES_USER="${ES_USER_NAME:-agora_user}"
 : "${ES_USER_PASSWORD:?ES_USER_PASSWORD must be set in elasticsearch/.env}"
 ES_USER_PASS="$ES_USER_PASSWORD"
 ES_ROLE="${ES_USER}_role"
+LOG_INDEX="${ES_LOG_INDEX:-agora-logs}"
+LOG_USER="${ES_LOG_USER_NAME:-agora_log_writer}"
+: "${ES_LOG_USER_PASSWORD:?ES_LOG_USER_PASSWORD must be set in elasticsearch/.env}"
+LOG_USER_PASS="$ES_LOG_USER_PASSWORD"
+LOG_ROLE="${LOG_USER}_write_role"
+
+if [ "$LOG_INDEX" = "$INDEX_NAME" ]; then
+  echo "[ERROR] ES_LOG_INDEX must be different from ES_INDEX ($INDEX_NAME)." >&2
+  exit 1
+fi
+if [ "$LOG_USER" = "$ES_USER" ] || [ "$LOG_USER" = "$ES_SUPER_USER" ]; then
+  echo "[ERROR] ES_LOG_USER_NAME must be different from the canvas and superuser accounts." >&2
+  exit 1
+fi
 
 echo "=== 1. Elasticsearch 역할 ($ES_ROLE) 생성 및 인덱스($INDEX_NAME) 권한 부여 ==="
 
@@ -183,8 +197,49 @@ if [ "$INDEX_EXISTS" != "200" ]; then
   echo -e "\n[OK] 인덱스($INDEX_NAME) 매핑 생성 완료 (초기 데이터 미삽입)"
 fi
 
-echo -e "\n=== 4. 신규 사용자($ES_USER) 인증 및 인덱스($INDEX_NAME) 메타데이터 접근 검증 ==="
+echo -e "\n=== 4. 로그 전용 역할($LOG_ROLE) 생성 ==="
+curl -s -f -u "$ES_SUPER_USER:$ES_SUPER_PASS" -X PUT "$ES_HOST/_security/role/$LOG_ROLE" \
+     -H 'Content-Type: application/json' \
+     -d "{
+  \"cluster\": [],
+  \"indices\": [
+    {
+      \"names\": [ \"$LOG_INDEX\" ],
+      \"privileges\": [ \"auto_configure\", \"create_doc\" ]
+    }
+  ]
+}"
+echo -e "\n[OK] 역할($LOG_ROLE)은 로그 인덱스($LOG_INDEX)에 문서 추가 권한만 가집니다"
+
+echo -e "\n=== 5. 로그 전용 사용자($LOG_USER) 생성 ==="
+curl -s -f -u "$ES_SUPER_USER:$ES_SUPER_PASS" -X POST "$ES_HOST/_security/user/$LOG_USER" \
+     -H 'Content-Type: application/json' \
+     -d "{
+  \"password\": \"$LOG_USER_PASS\",
+  \"roles\": [ \"$LOG_ROLE\" ],
+  \"full_name\": \"Agora Backend Log Writer\"
+}"
+echo -e "\n[OK] 로그 사용자($LOG_USER) 생성 완료"
+
+echo -e "\n=== 6. 로그 인덱스 ($LOG_INDEX) 준비 ==="
+LOG_INDEX_EXISTS=$(curl -s -o /dev/null -w "%{http_code}" \
+  -u "$ES_SUPER_USER:$ES_SUPER_PASS" "$ES_HOST/$LOG_INDEX")
+if [ "$LOG_INDEX_EXISTS" != "200" ]; then
+  curl -s -f -u "$ES_SUPER_USER:$ES_SUPER_PASS" -X PUT "$ES_HOST/$LOG_INDEX" \
+       -H 'Content-Type: application/json' \
+       -d '{
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0
+    }
+  }'
+  echo -e "\n[OK] 로그 인덱스($LOG_INDEX) 생성 완료 (동적 필드 매핑 사용)"
+else
+  echo "로그 인덱스($LOG_INDEX)가 이미 존재합니다."
+fi
+
+echo -e "\n=== 7. 신규 사용자($ES_USER) 인증 및 인덱스($INDEX_NAME) 메타데이터 접근 검증 ==="
 curl -s -f -u "$ES_USER:$ES_USER_PASS" -X GET "$ES_HOST/$INDEX_NAME?pretty" | head -n 15
 echo ""
 
-echo -e "\n[SUCCESS] Elasticsearch 인덱스($INDEX_NAME) 및 소유 사용자($ES_USER) 초기화가 완료되었습니다."
+echo -e "\n[SUCCESS] 캔버스 인덱스($INDEX_NAME)와 로그 인덱스($LOG_INDEX), 각 전용 사용자의 초기화가 완료되었습니다."
