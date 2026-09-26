@@ -125,6 +125,27 @@ the fixed Docker bridge addresses in `REDIS_SENTINELS`. This setup does not
 protect against that host failing. Redis uses asynchronous replication, so
 failover can lose the most recent writes if they had not reached a replica yet.
 
+### Restart the local Sentinel lab
+
+Run these commands from the repository root. Keep the Compose project name
+`project-agora-db-ha`: changing it creates a different set of named volumes
+and can make an existing Redis dataset appear empty. `up -d` starts the
+primary first, then its replicas and Sentinels, and also starts Redis Insight.
+
+```bash
+docker compose --env-file redis/.env -p project-agora-db-ha \
+  -f redis/docker-compose.sentinel.yml up -d
+docker compose --env-file redis/.env -p project-agora-db-ha \
+  -f redis/docker-compose.sentinel.yml ps
+```
+
+Wait for the primary, both replicas, and all three Sentinels to show `healthy`;
+Redis Insight should show `running`. To stop this stack while retaining data,
+run the same command with `stop` in place of `ps`. A normal restart does not
+need `init-redis-sentinel.sh`; run initialization only for a new/empty
+deployment or when deliberately repairing its schema and registrations. Do
+not use `down -v` when you need to keep the Redis data.
+
 The repository's maintenance CLI scripts locate the current primary by
 checking the local Redis/Sentinel containers. The existing `redis_server`
 table continues to register the initial primary endpoint for the logical Redis
@@ -135,8 +156,9 @@ Run the local automatic failover exercise after starting and initializing the
 Sentinel lab:
 
 ```bash
-docker compose stop redis-stack
-docker compose --env-file redis/.env -f redis/docker-compose.sentinel.yml up -d
+docker compose -p project-agora-db stop redis-stack
+docker compose --env-file redis/.env -p project-agora-db-ha \
+  -f redis/docker-compose.sentinel.yml up -d
 ./redis/init-redis-sentinel.sh
 ./redis/test-failover.sh
 ```
@@ -150,3 +172,31 @@ three nodes to return to a primary/replica topology. It deletes its temporary
 probe key after success.
 The test introduces a brief Redis interruption; don't run it against a live
 service.
+
+### Restart a multi-host Redis/Sentinel node
+
+On each host, reuse the same Compose project name and host-specific settings
+used when that node was first deployed. This preserves that host's Redis and
+Sentinel named volumes. For example, on the initial primary host:
+
+```bash
+export REDIS_COMPOSE_PROJECT=agora-redis-a
+export REDIS_NODE_HOSTNAME=agora-r1
+export REDIS_NODE_ANNOUNCE_IP=10.0.0.21
+export REDIS_NODE_BIND_IP=10.0.0.21
+export REDIS_SENTINEL_BIND_IP=10.0.0.21
+export REDIS_SENTINEL_MASTER_HOST=10.0.0.21
+
+docker compose --env-file redis/.env -p "$REDIS_COMPOSE_PROJECT" \
+  -f redis/docker-compose.ha-node.yml up -d redis-node redis-sentinel
+docker compose --env-file redis/.env -p "$REDIS_COMPOSE_PROJECT" \
+  -f redis/docker-compose.ha-node.yml ps
+```
+
+For a replica, also export its original `REDIS_NODE_PRIMARY_HOST` and retain
+its original project name, hostname, announce/bind IPs, TLS certificate path,
+and ports. Repeat on each node host. Wait for the node and Sentinel health
+checks, then confirm from the cluster that the replica has synchronized and
+all Sentinels see the same primary. A routine restart does not require
+`init-redis-ha-node.sh` or data import. Coordinate a production node restart
+with the service owner so the application and firewall paths remain available.

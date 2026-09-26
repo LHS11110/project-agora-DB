@@ -55,6 +55,35 @@ configure Pacemaker/Corosync ports and fencing through the host operating system
 `server.crt`, `server.key`, and `ca.crt`; it is independent from the relative
 `MSSQL_TLS_CERTS_DIR` used by the standalone development Compose file.
 
+### Restart a stopped SQL Server node
+
+Use the same Compose project name and node values used at initial deployment.
+The project name selects the node's `mssql_ag_data` volume; changing it can
+start SQL Server against a new, empty volume. For the example node above, run
+this on that SQL host from the repository root:
+
+```bash
+export MSSQL_NODE_HOSTNAME=agora-sql-a
+export MSSQL_NODE_BIND_IP=10.0.0.11
+export MSSQL_NODE_PID=Standard
+export MSSQL_NODE_PORT=1433
+export MSSQL_AG_ENDPOINT_PORT=5022
+export MSSQL_NODE_TLS_CERTS_DIR=/etc/project-agora/mssql-tls
+
+docker compose --env-file mssql/.env -p agora-mssql-node-a \
+  -f mssql/cluster/docker-compose.node.yml up -d mssql-ag-node
+docker compose --env-file mssql/.env -p agora-mssql-node-a \
+  -f mssql/cluster/docker-compose.node.yml ps
+```
+
+Repeat with that node's original values and project name on each host. Wait
+for the SQL Server health check to report `healthy`, then confirm the replica
+has rejoined and synchronized before considering the restart complete. A
+normal restart keeps the named volume and does not require restoring the
+database or rerunning schema initialization. In a production AG managed by
+Pacemaker, coordinate a planned maintenance/failover with the cluster owner;
+Compose does not manage Pacemaker resources.
+
 ## Bootstrap order
 
 1. Install and configure Pacemaker, Corosync, and a fencing agent on all three

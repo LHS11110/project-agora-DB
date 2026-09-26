@@ -210,14 +210,67 @@ MS SQL은 관계형 메타데이터와 현재 배정 상태를 보관합니다.
 
 ## 운영 명령
 
+### 중지한 개별 저장소 재기동
+
+이 checkout의 개별 Compose 배포를 다시 올릴 때는 저장소 루트에서 실행합니다. 아래 프로젝트 이름은 현재 컨테이너의 이름과 데이터 볼륨을 이어 쓰기 위해 고정되어 있습니다. SQL Server와 Elasticsearch를 먼저 올리고, 이어 Redis primary·replica·Sentinel 및 Redis Insight를 함께 시작합니다.
+
+시작 전에 기존 데이터 볼륨이 있는지 확인합니다. Compose는 볼륨이 없으면 빈 볼륨을 새로 만들기 때문에, 아래 SQL/Elasticsearch 볼륨 중 하나라도 없으면 `up -d`로 빈 DB를 기동하지 말고 백업에서 복원할 기존 데이터를 먼저 확인하세요.
+
 ```bash
-# 전체 상태와 로그
+docker volume inspect project-agora-db_mssql_data project-agora-db_es_data
+```
+
+```bash
+docker compose --env-file mssql/.env -p project-agora-db \
+  -f mssql/docker-compose.yml up -d mssql
+
+docker compose --env-file elasticsearch/.env -p project-agora-db \
+  -f elasticsearch/docker-compose.yml up -d elasticsearch
+
+docker compose --env-file redis/.env -p project-agora-db-ha \
+  -f redis/docker-compose.sentinel.yml up -d
+```
+
+Compose 상태와 health check를 확인합니다. Redis replica와 Sentinel은 primary가 healthy가 된 뒤 시작됩니다.
+
+```bash
+docker compose --env-file mssql/.env -p project-agora-db \
+  -f mssql/docker-compose.yml ps
+docker compose --env-file elasticsearch/.env -p project-agora-db \
+  -f elasticsearch/docker-compose.yml ps
+docker compose --env-file redis/.env -p project-agora-db-ha \
+  -f redis/docker-compose.sentinel.yml ps
+```
+
+문제가 있으면 해당 Compose 파일의 로그를 확인합니다.
+
+```bash
+docker compose --env-file mssql/.env -p project-agora-db \
+  -f mssql/docker-compose.yml logs --tail=100 mssql
+docker compose --env-file elasticsearch/.env -p project-agora-db \
+  -f elasticsearch/docker-compose.yml logs --tail=100 elasticsearch
+docker compose --env-file redis/.env -p project-agora-db-ha \
+  -f redis/docker-compose.sentinel.yml logs --tail=100
+```
+
+일반적인 중지는 같은 파일과 프로젝트 이름으로 `stop`을 실행합니다. `stop`과 위의 `up -d`는 named volume의 DB 파일을 보존합니다. 단순 중지 후 재기동에는 `mssql-init`, `init-mssql.sh`, `init-redis-sentinel.sh`, `init-elasticsearch.sh`를 다시 실행하지 않습니다. 새 볼륨을 만들었거나 초기 스키마·계정이 실제로 없을 때만 해당 초기화 절차를 따르세요. `down -v`는 영구 데이터 볼륨을 삭제하므로 재기동 절차에 사용하지 않습니다.
+
+```bash
+# 위에서 시작한 개별 구성 중지 — 데이터 볼륨 유지
+docker compose --env-file mssql/.env -p project-agora-db \
+  -f mssql/docker-compose.yml stop
+docker compose --env-file elasticsearch/.env -p project-agora-db \
+  -f elasticsearch/docker-compose.yml stop
+docker compose --env-file redis/.env -p project-agora-db-ha \
+  -f redis/docker-compose.sentinel.yml stop
+
+# 기본 단일 노드 Compose 구성 상태와 로그
 docker compose ps
 docker compose logs -f mssql redis-stack elasticsearch
 
-# 컨테이너 중지·재시작 — 데이터 볼륨 유지
+# 기본 단일 노드 Compose 구성 중지·재기동 — 데이터 볼륨 유지
 docker compose stop
-docker compose start
+docker compose up -d
 
 # Compose 설정 검증
 docker compose config -q

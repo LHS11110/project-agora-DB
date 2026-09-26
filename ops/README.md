@@ -2,6 +2,20 @@
 
 `ops/` 스크립트는 이 저장소의 DB 요구사항에 맞춰 환경 파일 준비, 사전 검사, BE 연결 설정 반영, 서비스 기동, 백업 예약을 수행합니다. 비밀번호와 인증서 개인 키는 출력하지 않습니다. 운영 주소·인증서·마운트 지점은 각 환경에 맞게 제공해야 하므로 스크립트가 임의로 만들지 않습니다.
 
+## Docker 호스트 준비
+
+두 Linux 서버 각각에 저장소 checkout을 준비한 뒤 저장소 루트에서 실행합니다. 이 스크립트는 Ubuntu/Debian에서 Docker Engine과 Compose plugin을 공식 APT 저장소로 설치하고 활성 상태를 확인합니다. 이미 동작하는 Docker+Compose가 있으면 그대로 확인만 하며, 다른 컨테이너 런타임 패키지나 Docker 데이터는 자동 삭제하지 않습니다.
+
+```bash
+./ops/bootstrap-docker-host.sh
+docker info
+docker compose version
+```
+
+스크립트가 Docker 그룹에 사용자를 추가하지는 않습니다. 배포 명령은 Docker socket을 사용할 권한이 부여된 계정으로 실행하세요. 두 호스트에서 Docker가 준비되면 아래 per-node 배포 절차를 각 호스트에서 실행하고, 각 호스트의 `.env`, TLS 경로, 사설 IP를 해당 노드 값으로 제공합니다.
+
+현재 운영 HA 절차는 Redis/Sentinel 3개 노드와 SQL AG의 데이터 replica 및 configuration-only replica를 전제로 합니다. 물리 서버가 정확히 두 대라면 third vote/configuration replica 배치가 달라지므로, 역할과 주소를 정한 뒤 배포해야 합니다. 이 Docker 설치 스크립트는 서버 역할을 임의로 정하지 않습니다.
+
 ## 개발 환경
 
 저장소 루트에서 실행합니다.
@@ -102,6 +116,36 @@ python3 ops/configure-db.py deploy-redis-ha-node
 ```
 
 replica는 별도의 프로젝트·호스트·사설 IP를 쓰고 `REDIS_NODE_ROLE=replica`, `REDIS_NODE_PRIMARY_HOST=10.20.0.21`을 지정합니다. 각 호스트의 `REDIS_NODE_BIND_IP`와 `REDIS_SENTINEL_BIND_IP`는 `REDIS_NODE_ANNOUNCE_IP`와 같은 사설 인터페이스 주소여야 합니다. 이 스크립트는 해당 호스트에 Redis와 Sentinel을 기동하고 ACL/초기화를 수행합니다. 노드 3개를 서로 다른 호스트에 배치한 뒤 방화벽, 복제, Sentinel discovery와 실제 BE/C++ 재연결을 시험해야 합니다.
+
+### 계획 정지한 노드 재기동
+
+일반 재기동에는 `deploy-sql-ag-node` 또는 `deploy-redis-ha-node` 초기 설정 명령 대신 Compose를 직접 사용합니다. 각 호스트에서 처음 배포할 때와 같은 호스트별 환경변수, `.env`, TLS 경로와 Compose 프로젝트 이름을 다시 지정하세요. 프로젝트 이름을 바꾸면 다른 named volume이 선택되어 기존 DB가 보이지 않을 수 있습니다.
+
+SQL AG 노드 예시(`MSSQL_NODE_HOSTNAME=agora-sql-01`로 배포한 경우):
+
+```bash
+export MSSQL_NODE_HOSTNAME=agora-sql-01
+export MSSQL_NODE_BIND_IP=10.20.0.11
+export MSSQL_NODE_PID=Standard
+export MSSQL_NODE_TLS_CERTS_DIR=/etc/project-agora/mssql-tls
+export MSSQL_COMPOSE_PROJECT=agora-mssql-agora-sql-01
+
+docker compose --env-file mssql/.env -p "$MSSQL_COMPOSE_PROJECT" \
+  -f mssql/cluster/docker-compose.node.yml up -d mssql-ag-node
+docker compose --env-file mssql/.env -p "$MSSQL_COMPOSE_PROJECT" \
+  -f mssql/cluster/docker-compose.node.yml ps
+```
+
+Redis/Sentinel은 최초 배포에 사용한 `REDIS_COMPOSE_PROJECT`, hostname, announce/bind IP, primary 주소, replica upstream, TLS 경로와 포트를 각 호스트에서 그대로 export한 뒤 실행합니다:
+
+```bash
+docker compose --env-file redis/.env -p "$REDIS_COMPOSE_PROJECT" \
+  -f redis/docker-compose.ha-node.yml up -d redis-node redis-sentinel
+docker compose --env-file redis/.env -p "$REDIS_COMPOSE_PROJECT" \
+  -f redis/docker-compose.ha-node.yml ps
+```
+
+health check가 healthy가 되고 SQL replica가 동기화되거나 Redis replica/Sentinel이 같은 topology를 확인한 뒤 재기동을 마칩니다. 일상 재기동에는 schema initializer나 데이터 import를 반복하지 않습니다. Pacemaker가 SQL AG를 관리하는 운영 클러스터는 담당자의 planned maintenance/failover 절차에 맞춰 노드를 재기동하세요. 구성별 설명은 [SQL Server 노드 재기동](../mssql/cluster/README.md#restart-a-stopped-sql-server-node)과 [Redis/Sentinel 노드 재기동](../redis/cluster/README.md#restart-a-multi-host-redissentinel-node)을 참고하세요.
 
 ## 백업과 예약
 
