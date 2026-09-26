@@ -10,7 +10,7 @@ Project Agora의 저장소 인프라입니다. 기본 Docker Compose 구성은 �
 | --- | --- | --- | --- |
 | MS SQL Server 2022 CU27 | 사용자, 세션, 캔버스 배정, C++·Redis 서버 메타데이터 | `agora-mssql` | `1433` |
 | Redis 8.6.7 | 활성 캔버스 RedisJSON, RediSearch | `agora-redis-stack` | `6379` |
-| Redis Insight 3.8.0 | Redis 관리 UI | `agora-redis-insight` | `8001` |
+| Redis Insight 3.8.0 | Redis 관리 UI | Compose가 프로젝트별 이름을 생성 | `8001` |
 | Elasticsearch 8.19.22 | 캔버스 문서, 백엔드 애플리케이션 로그 | `agora-elasticsearch` | `9200` |
 
 기본 단일 노드 구성의 세 서비스는 Compose 네트워크 `agora-net`을 공유합니다. 기본값은 호스트의 loopback에만 DB, Redis, Elasticsearch를 바인딩합니다. HA 구성은 별도 Compose 네트워크와 노드 구성을 사용합니다.

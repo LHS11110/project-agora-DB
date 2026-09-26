@@ -54,6 +54,7 @@ if [ -n "$ENV_FILE" ]; then
   MSSQL_PASS=$(grep -v '^#' "$ENV_FILE" | grep 'MSSQL_PASSWORD=' | cut -d '=' -f2- | tr -d '\r' || echo "")
   DB_TRUST_SERVER_CERTIFICATE=$(grep -v '^#' "$ENV_FILE" | grep '^DB_TRUST_SERVER_CERTIFICATE=' | cut -d '=' -f2- | tr -d '\r' || true)
   DB_ENCRYPT=$(grep -v '^#' "$ENV_FILE" | grep '^DB_ENCRYPT=' | cut -d '=' -f2- | tr -d '\r' || true)
+  MSSQL_TLS_ENABLED=$(grep -v '^#' "$ENV_FILE" | grep '^MSSQL_TLS_ENABLED=' | cut -d '=' -f2- | tr -d '\r' || true)
   MSSQL_TABLE_USERS=$(grep -v '^#' "$ENV_FILE" | grep 'MSSQL_TABLE_USERS=' | cut -d '=' -f2- | tr -d '\r' || echo "users")
   MSSQL_TABLE_REDIS_SERVER=$(grep -v '^#' "$ENV_FILE" | grep 'MSSQL_TABLE_REDIS_SERVER=' | cut -d '=' -f2- | tr -d '\r' || echo "redis_server")
   MSSQL_TABLE_CANVAS_INFO=$(grep -v '^#' "$ENV_FILE" | grep 'MSSQL_TABLE_CANVAS_INFO=' | cut -d '=' -f2- | tr -d '\r' || echo "canvas_info")
@@ -66,6 +67,7 @@ else
   MSSQL_PASS=""
   DB_TRUST_SERVER_CERTIFICATE="false"
   DB_ENCRYPT="true"
+  MSSQL_TLS_ENABLED="false"
   MSSQL_TABLE_USERS="users"
   MSSQL_TABLE_REDIS_SERVER="redis_server"
   MSSQL_TABLE_CANVAS_INFO="canvas_info"
@@ -79,11 +81,14 @@ fi
 if [ -n "$MSSQL_PORT_OVERRIDE" ]; then MSSQL_PORT="$MSSQL_PORT_OVERRIDE"; fi
 if [ -n "$DB_ENCRYPT_OVERRIDE" ]; then DB_ENCRYPT="$DB_ENCRYPT_OVERRIDE"; fi
 if [ -n "$DB_TRUST_CERT_OVERRIDE" ]; then DB_TRUST_SERVER_CERTIFICATE="$DB_TRUST_CERT_OVERRIDE"; fi
+if [ -z "$MSSQL_TLS_ENABLED" ]; then MSSQL_TLS_ENABLED="false"; fi
 if [ -z "$DB_TRUST_SERVER_CERTIFICATE" ]; then DB_TRUST_SERVER_CERTIFICATE="false"; fi
 if [ -z "$DB_ENCRYPT" ]; then DB_ENCRYPT="true"; fi
 SQLCMD_TLS_ARGS=()
 if [ "$DB_ENCRYPT" != "false" ]; then SQLCMD_TLS_ARGS+=(-N); fi
-if [ "$DB_TRUST_SERVER_CERTIFICATE" = "true" ]; then SQLCMD_TLS_ARGS+=(-C); fi
+if [ "$DB_TRUST_SERVER_CERTIFICATE" = "true" ] || [ "$MSSQL_TLS_ENABLED" != "true" ]; then
+  SQLCMD_TLS_ARGS+=(-C)
+fi
 
 FILTER_TABLE=""
 SEARCH_KEYWORD=""

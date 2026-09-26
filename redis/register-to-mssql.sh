@@ -11,6 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 DB_ENCRYPT_OVERRIDE="${DB_ENCRYPT:-}"
 DB_TRUST_CERT_OVERRIDE="${DB_TRUST_SERVER_CERTIFICATE:-}"
+MSSQL_TLS_OVERRIDE="${MSSQL_TLS_ENABLED:-}"
 
 # 1. MS SQL 환경 변수 기본값 로드 (mssql/.env 우선 참조)
 if [ -f "$ROOT_DIR/mssql/.env" ]; then
@@ -34,6 +35,7 @@ if [ -f "$ROOT_DIR/mssql/.env" ]; then
   MSSQL_ENV_TABLE=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep 'MSSQL_TABLE_REDIS_SERVER=' | cut -d '=' -f2- | tr -d '\r' || true)
   MSSQL_ENV_DB_ENCRYPT=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep '^DB_ENCRYPT=' | cut -d '=' -f2- | tr -d '\r' || true)
   MSSQL_ENV_TRUST_CERT=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep '^DB_TRUST_SERVER_CERTIFICATE=' | cut -d '=' -f2- | tr -d '\r' || true)
+  MSSQL_ENV_TLS_ENABLED=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep '^MSSQL_TLS_ENABLED=' | cut -d '=' -f2- | tr -d '\r' || true)
 fi
 
 # 2. Redis 환경 변수 로드 (redis/.env)
@@ -61,11 +63,15 @@ MSSQL_PASS="${MSSQL_PASSWORD:-${MSSQL_ENV_PASS:-}}"
 MSSQL_TABLE="${MSSQL_TABLE_REDIS_SERVER:-${MSSQL_ENV_TABLE:-redis_server}}"
 DB_ENCRYPT="${MSSQL_ENV_DB_ENCRYPT:-true}"
 DB_TRUST_SERVER_CERTIFICATE="${MSSQL_ENV_TRUST_CERT:-false}"
+MSSQL_TLS_ENABLED="${MSSQL_ENV_TLS_ENABLED:-false}"
 if [ -n "$DB_ENCRYPT_OVERRIDE" ]; then DB_ENCRYPT="$DB_ENCRYPT_OVERRIDE"; fi
 if [ -n "$DB_TRUST_CERT_OVERRIDE" ]; then DB_TRUST_SERVER_CERTIFICATE="$DB_TRUST_CERT_OVERRIDE"; fi
+if [ -n "$MSSQL_TLS_OVERRIDE" ]; then MSSQL_TLS_ENABLED="$MSSQL_TLS_OVERRIDE"; fi
 SQLCMD_TLS_ARGS=()
 if [ "$DB_ENCRYPT" != "false" ]; then SQLCMD_TLS_ARGS+=(-N); fi
-if [ "$DB_TRUST_SERVER_CERTIFICATE" = "true" ]; then SQLCMD_TLS_ARGS+=(-C); fi
+if [ "$DB_TRUST_SERVER_CERTIFICATE" = "true" ] || [ "$MSSQL_TLS_ENABLED" != "true" ]; then
+  SQLCMD_TLS_ARGS+=(-C)
+fi
 
 echo "=================================================================="
 echo "  Agora Redis -> MS SQL External Endpoint Registration"

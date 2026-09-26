@@ -57,6 +57,7 @@ services:
       - MSSQL_PASSWORD=${MSSQL_PASSWORD}
       - MSSQL_SA_PASSWORD=${MSSQL_SA_PASSWORD}
       - DB_TRUST_SERVER_CERTIFICATE=${DB_TRUST_SERVER_CERTIFICATE:-false}
+      - MSSQL_TLS_ENABLED=${MSSQL_TLS_ENABLED:-false}
       - MSSQL_TABLE_USERS=${MSSQL_TABLE_USERS:-users}
       - MSSQL_TABLE_REDIS_SERVER=${MSSQL_TABLE_REDIS_SERVER:-redis_server}
       - MSSQL_TABLE_CANVAS_INFO=${MSSQL_TABLE_CANVAS_INFO:-canvas_info}
@@ -71,7 +72,7 @@ services:
     entrypoint: ["/bin/bash", "-c"]
     command:
       - >-
-        if [ "$${DB_TRUST_SERVER_CERTIFICATE:-false}" = "true" ]; then SQLCMD_TRUST=(-C); else SQLCMD_TRUST=(); fi;
+        if [ "$${DB_TRUST_SERVER_CERTIFICATE:-false}" = "true" ] || [ "$${MSSQL_TLS_ENABLED:-false}" != "true" ]; then SQLCMD_TRUST=(-C); else SQLCMD_TRUST=(); fi;
         SQLCMDPASSWORD="$$MSSQL_SA_PASSWORD" /opt/mssql-tools18/bin/sqlcmd -S mssql -U sa "$${SQLCMD_TRUST[@]}" -b -I
         -v DB_NAME="$$MSSQL_DB" DB_USER="$$MSSQL_USER" DB_PASSWORD="$$MSSQL_PASSWORD"
         TABLE_USERS="$$MSSQL_TABLE_USERS" TABLE_REDIS_SERVER="$$MSSQL_TABLE_REDIS_SERVER"
