@@ -9,16 +9,22 @@ services:
       - .env
     environment:
       REDIS_NODE_APPENDONLY: "${REDIS_NODE_APPENDONLY:-yes}"
+      REDIS_NODE_ANNOUNCE_IP: ${REDIS_PRIMARY_IP:-172.20.0.2}
+      REDIS_NODE_PRIMARY_HOST: ${REDIS_PRIMARY_UPSTREAM-}
+      REDIS_NODE_PRIMARY_PORT: ${REDIS_NODE_PRIMARY_PORT:-6379}
     entrypoint: ["/bin/sh", "/usr/local/bin/redis-node-entrypoint.sh"]
     ports:
       - "${REDIS_BIND_IP:-127.0.0.1}:${REDIS_EXTERNAL_PORT:-${REDIS_PORT:-6379}}:6379"
     volumes:
       - ./redis-node-entrypoint.sh:/usr/local/bin/redis-node-entrypoint.sh:ro
+      - ./redis-healthcheck.sh:/usr/local/bin/redis-healthcheck.sh:ro
+      - ${REDIS_TLS_CERTS_DIR:-./tls/server}:/run/secrets/redis-tls:ro
       - redis_primary_data:/data
     networks:
-      - redis-ha
+      redis-ha:
+        ipv4_address: ${REDIS_PRIMARY_IP:-172.20.0.2}
     healthcheck:
-      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$${REDIS_PASSWORD}\" redis-cli ping | grep -q PONG"]
+      test: ["CMD", "/usr/local/bin/redis-healthcheck.sh", "node"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -32,18 +38,22 @@ services:
       - .env
     entrypoint: ["/bin/sh", "/usr/local/bin/redis-node-entrypoint.sh"]
     environment:
-      REDIS_NODE_PRIMARY_HOST: redis-primary
-      REDIS_NODE_PRIMARY_PORT: 6379
+      REDIS_NODE_PRIMARY_HOST: ${REDIS_REPLICA_1_UPSTREAM-redis-primary}
+      REDIS_NODE_PRIMARY_PORT: ${REDIS_NODE_PRIMARY_PORT:-6379}
+      REDIS_NODE_ANNOUNCE_IP: ${REDIS_REPLICA_1_IP:-172.20.0.7}
     volumes:
       - ./redis-node-entrypoint.sh:/usr/local/bin/redis-node-entrypoint.sh:ro
+      - ./redis-healthcheck.sh:/usr/local/bin/redis-healthcheck.sh:ro
+      - ${REDIS_TLS_CERTS_DIR:-./tls/server}:/run/secrets/redis-tls:ro
       - redis_replica_1_data:/data
     networks:
-      - redis-ha
+      redis-ha:
+        ipv4_address: ${REDIS_REPLICA_1_IP:-172.20.0.7}
     depends_on:
       redis-primary:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$${REDIS_PASSWORD}\" redis-cli ping | grep -q PONG"]
+      test: ["CMD", "/usr/local/bin/redis-healthcheck.sh", "node"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -57,18 +67,22 @@ services:
       - .env
     entrypoint: ["/bin/sh", "/usr/local/bin/redis-node-entrypoint.sh"]
     environment:
-      REDIS_NODE_PRIMARY_HOST: redis-primary
-      REDIS_NODE_PRIMARY_PORT: 6379
+      REDIS_NODE_PRIMARY_HOST: ${REDIS_REPLICA_2_UPSTREAM-redis-primary}
+      REDIS_NODE_PRIMARY_PORT: ${REDIS_NODE_PRIMARY_PORT:-6379}
+      REDIS_NODE_ANNOUNCE_IP: ${REDIS_REPLICA_2_IP:-172.20.0.5}
     volumes:
       - ./redis-node-entrypoint.sh:/usr/local/bin/redis-node-entrypoint.sh:ro
+      - ./redis-healthcheck.sh:/usr/local/bin/redis-healthcheck.sh:ro
+      - ${REDIS_TLS_CERTS_DIR:-./tls/server}:/run/secrets/redis-tls:ro
       - redis_replica_2_data:/data
     networks:
-      - redis-ha
+      redis-ha:
+        ipv4_address: ${REDIS_REPLICA_2_IP:-172.20.0.5}
     depends_on:
       redis-primary:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$${REDIS_PASSWORD}\" redis-cli ping | grep -q PONG"]
+      test: ["CMD", "/usr/local/bin/redis-healthcheck.sh", "node"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -85,12 +99,21 @@ services:
       - "${REDIS_BIND_IP:-127.0.0.1}:26379:26379"
     volumes:
       - ./sentinel-entrypoint.sh:/usr/local/bin/sentinel-entrypoint.sh:ro
+      - ./redis-healthcheck.sh:/usr/local/bin/redis-healthcheck.sh:ro
+      - ${REDIS_TLS_CERTS_DIR:-./tls/server}:/run/secrets/redis-tls:ro
       - redis_sentinel_1_data:/data
     networks:
-      - redis-ha
+      redis-ha:
+        ipv4_address: ${REDIS_SENTINEL_1_IP:-172.20.0.6}
     depends_on:
       redis-primary:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/redis-healthcheck.sh", "sentinel"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   redis-sentinel-2:
     image: redis:8.6.7
@@ -103,12 +126,21 @@ services:
       - "${REDIS_BIND_IP:-127.0.0.1}:26380:26379"
     volumes:
       - ./sentinel-entrypoint.sh:/usr/local/bin/sentinel-entrypoint.sh:ro
+      - ./redis-healthcheck.sh:/usr/local/bin/redis-healthcheck.sh:ro
+      - ${REDIS_TLS_CERTS_DIR:-./tls/server}:/run/secrets/redis-tls:ro
       - redis_sentinel_2_data:/data
     networks:
-      - redis-ha
+      redis-ha:
+        ipv4_address: ${REDIS_SENTINEL_2_IP:-172.20.0.3}
     depends_on:
       redis-primary:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/redis-healthcheck.sh", "sentinel"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   redis-sentinel-3:
     image: redis:8.6.7
@@ -121,12 +153,21 @@ services:
       - "${REDIS_BIND_IP:-127.0.0.1}:26381:26379"
     volumes:
       - ./sentinel-entrypoint.sh:/usr/local/bin/sentinel-entrypoint.sh:ro
+      - ./redis-healthcheck.sh:/usr/local/bin/redis-healthcheck.sh:ro
+      - ${REDIS_TLS_CERTS_DIR:-./tls/server}:/run/secrets/redis-tls:ro
       - redis_sentinel_3_data:/data
     networks:
-      - redis-ha
+      redis-ha:
+        ipv4_address: ${REDIS_SENTINEL_3_IP:-172.20.0.4}
     depends_on:
       redis-primary:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/redis-healthcheck.sh", "sentinel"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   redis-insight:
     image: redis/redisinsight:3.8.0
@@ -151,3 +192,7 @@ volumes:
 networks:
   redis-ha:
     name: agora-redis-ha
+    internal: true
+    ipam:
+      config:
+        - subnet: ${REDIS_HA_SUBNET:-172.20.0.0/16}

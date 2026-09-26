@@ -38,6 +38,7 @@ desktop.ini
 *.cert
 *.crt
 elasticsearch/certs/
+redis/tls/
 
 # ==========================================
 # Python (Bytecode, Caches & Environments)

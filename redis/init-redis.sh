@@ -39,14 +39,14 @@ REDIS_KEY_PREFIX="${REDIS_KEY_PREFIX:-canvas:}"
 # redis-cli 실행 래퍼 함수 (로컬 redis-cli 우선, 없으면 docker exec fallback)
 if command -v redis-cli &> /dev/null; then
   run_admin_cli() {
-    REDISCLI_AUTH="$REDIS_ADMIN_PASS" redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" "$@"
+    "$SCRIPT_DIR/redis-host-cli.sh" admin "$@"
   }
   run_user_cli() {
-    REDISCLI_AUTH="$REDIS_USER_PASS" redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" --user "$REDIS_USER" --no-auth-warning "$@"
+    "$SCRIPT_DIR/redis-host-cli.sh" app "$@"
   }
   provision_app_acl() {
-    printf '>%s' "$REDIS_USER_PASS" | REDISCLI_AUTH="$REDIS_ADMIN_PASS" redis-cli -x \
-      -h "$REDIS_HOST" -p "$REDIS_PORT" ACL SETUSER "$REDIS_USER" reset on \
+    printf '>%s' "$REDIS_USER_PASS" | "$SCRIPT_DIR/redis-host-cli.sh" admin -x \
+      ACL SETUSER "$REDIS_USER" reset on \
       "~${REDIS_KEY_PREFIX}*" "~${REDIS_INDEX_NAME}*" resetchannels -@all \
       +auth +ping +role +json.get +json.set +json.arrlen +json.arrappend +json.del \
       +get +del +exists +keys +eval +ft.search +ft.info

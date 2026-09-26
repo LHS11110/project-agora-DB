@@ -15,4 +15,7 @@ if [ "${MSSQL_TLS_ENABLED:-false}" = "true" ]; then
 fi
 
 # Preserve Microsoft's image UID and writable-volume checks after TLS setup.
-exec /opt/mssql/bin/permissions_check.sh "$@"
+# Recent SQL Server images print their non-root/volume check and exit without
+# forwarding the command, so launch sqlservr after the check completes.
+/opt/mssql/bin/permissions_check.sh "$@"
+exec "$@"

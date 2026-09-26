@@ -7,6 +7,12 @@ CONFIG_FILE=/data/sentinel.conf
 ACL_FILE=/data/sentinel-users.acl
 MASTER_HOST="${REDIS_SENTINEL_MASTER_HOST:-redis-primary}"
 SENTINEL_BIND_IP="${REDIS_SENTINEL_BIND_IP:-0.0.0.0}"
+SENTINEL_PORT="${REDIS_SENTINEL_PORT:-26379}"
+NODE_PORT="${REDIS_NODE_PORT:-6379}"
+TLS_ENABLED="${REDIS_TLS_ENABLED:-false}"
+TLS_CERTIFICATE="${REDIS_TLS_CERTIFICATE:-/run/secrets/redis-tls/server.crt}"
+TLS_KEY="${REDIS_TLS_KEY:-/run/secrets/redis-tls/server.key}"
+TLS_CA_CERT="${REDIS_TLS_CA_CERT:-/run/secrets/redis-tls/ca.crt}"
 ESCAPED_PASSWORD=$(printf '%s' "$REDIS_PASSWORD" | sed 's/\\/\\\\/g; s/"/\\"/g')
 PASSWORD_HASH=$(printf '%s' "$REDIS_PASSWORD" | sha256sum | awk '{print $1}')
 
@@ -23,6 +29,29 @@ user $REDIS_SENTINEL_USER on #$SENTINEL_PASSWORD_HASH -@all +auth +ping \
 +sentinel|get-master-addr-by-name +sentinel|masters +sentinel|master \
 +sentinel|replicas +sentinel|sentinels +sentinel|myid"
 fi
+case "$TLS_ENABLED" in
+  true|false) ;;
+  *) echo "REDIS_TLS_ENABLED must be true or false." >&2; exit 1 ;;
+esac
+if [ "$TLS_ENABLED" = true ]; then
+  for tls_file in "$TLS_CERTIFICATE" "$TLS_KEY" "$TLS_CA_CERT"; do
+    if [ ! -r "$tls_file" ]; then
+      echo "Redis Sentinel TLS file is not readable: $tls_file" >&2
+      exit 1
+    fi
+  done
+  TLS_RUNTIME_DIR=/data/tls
+  mkdir -p "$TLS_RUNTIME_DIR"
+  cp "$TLS_CERTIFICATE" "$TLS_RUNTIME_DIR/server.crt"
+  cp "$TLS_KEY" "$TLS_RUNTIME_DIR/server.key"
+  cp "$TLS_CA_CERT" "$TLS_RUNTIME_DIR/ca.crt"
+  chown -R redis:redis "$TLS_RUNTIME_DIR"
+  chmod 0700 "$TLS_RUNTIME_DIR/server.key"
+  chmod 0644 "$TLS_RUNTIME_DIR/server.crt" "$TLS_RUNTIME_DIR/ca.crt"
+  TLS_CERTIFICATE="$TLS_RUNTIME_DIR/server.crt"
+  TLS_KEY="$TLS_RUNTIME_DIR/server.key"
+  TLS_CA_CERT="$TLS_RUNTIME_DIR/ca.crt"
+fi
 cat > "$ACL_FILE" <<EOF
 $SENTINEL_ACL
 user sentinel-internal on #$PASSWORD_HASH allchannels +@all
@@ -30,15 +59,30 @@ EOF
 chmod 600 "$ACL_FILE"
 
 if [ ! -s "$CONFIG_FILE" ]; then
-  cat > "$CONFIG_FILE" <<EOF
-port 26379
+  if [ "$TLS_ENABLED" = true ]; then
+    cat > "$CONFIG_FILE" <<EOF
+port 0
+tls-port $SENTINEL_PORT
+tls-cert-file $TLS_CERTIFICATE
+tls-key-file $TLS_KEY
+tls-ca-cert-file $TLS_CA_CERT
+tls-auth-clients no
+tls-replication yes
+tls-protocols TLSv1.2 TLSv1.3
+EOF
+  else
+    cat > "$CONFIG_FILE" <<EOF
+port $SENTINEL_PORT
+EOF
+  fi
+  cat >> "$CONFIG_FILE" <<EOF
 bind $SENTINEL_BIND_IP
 protected-mode yes
 dir /data
 aclfile $ACL_FILE
 sentinel resolve-hostnames yes
 sentinel announce-hostnames no
-sentinel monitor agora-master $MASTER_HOST 6379 2
+sentinel monitor agora-master $MASTER_HOST $NODE_PORT 2
 sentinel auth-pass agora-master "$ESCAPED_PASSWORD"
 sentinel sentinel-user sentinel-internal
 sentinel sentinel-pass "$ESCAPED_PASSWORD"
@@ -109,6 +153,19 @@ set_config_line 'sentinel announce-hostnames ' 'sentinel announce-hostnames no'
 set_config_line 'sentinel auth-pass agora-master ' "sentinel auth-pass agora-master \"$ESCAPED_PASSWORD\""
 set_config_line 'sentinel sentinel-user ' 'sentinel sentinel-user sentinel-internal'
 set_config_line 'sentinel sentinel-pass ' "sentinel sentinel-pass \"$ESCAPED_PASSWORD\""
+if [ "$TLS_ENABLED" = true ]; then
+  set_config_line 'port ' 'port 0'
+  set_config_line 'tls-port ' "tls-port $SENTINEL_PORT"
+  set_config_line 'tls-cert-file ' "tls-cert-file $TLS_CERTIFICATE"
+  set_config_line 'tls-key-file ' "tls-key-file $TLS_KEY"
+  set_config_line 'tls-ca-cert-file ' "tls-ca-cert-file $TLS_CA_CERT"
+  set_config_line 'tls-auth-clients ' 'tls-auth-clients no'
+  set_config_line 'tls-replication ' 'tls-replication yes'
+  set_config_line 'tls-protocols ' 'tls-protocols TLSv1.2 TLSv1.3'
+else
+  set_config_line 'port ' "port $SENTINEL_PORT"
+  sed -i '/^tls-port /d; /^tls-cert-file /d; /^tls-key-file /d; /^tls-ca-cert-file /d; /^tls-auth-clients /d; /^tls-replication /d; /^tls-protocols /d' "$CONFIG_FILE"
+fi
 if grep -q '^bind ' "$CONFIG_FILE"; then
   sed -i "s|^bind .*|bind $SENTINEL_BIND_IP|" "$CONFIG_FILE"
 else

@@ -69,7 +69,7 @@ run_cli() {
     || [ "$(docker inspect -f '{{.State.Running}}' agora-redis-node 2>/dev/null || true)" = "true" ]; then
     "$SCRIPT_DIR/redis-ha-cli.sh" "$@"
   elif command -v redis-cli &> /dev/null; then
-    REDISCLI_AUTH="$REDIS_ADMIN_PASS" redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" "$@"
+    "$SCRIPT_DIR/redis-host-cli.sh" admin "$@"
   else
     "$SCRIPT_DIR/redis-container-cli.sh" agora-redis-stack admin "$@"
   fi

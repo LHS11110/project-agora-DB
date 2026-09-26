@@ -108,6 +108,7 @@ def generated_secret(key: str) -> str:
 
 
 def prepare() -> None:
+    redis_env_was_missing = not ENV_FILES["redis"].exists()
     for env_path in ENV_FILES.values():
         if env_path.is_symlink():
             raise SetupError(f"Refusing to modify symlinked environment file: {env_path}")
@@ -135,9 +136,23 @@ def prepare() -> None:
         directory.mkdir(parents=True, exist_ok=True, mode=0o750)
         os.chmod(directory, 0o750)
 
+    if redis_env_was_missing:
+        redis_tls_dir = ROOT / "redis" / "tls" / "server"
+        update_env_file(ENV_FILES["redis"], {
+            "REDIS_TLS_ENABLED": "true",
+            "REDIS_TLS_CERTS_DIR": str(redis_tls_dir),
+            "REDIS_TLS_CERTIFICATE": "/run/secrets/redis-tls/server.crt",
+            "REDIS_TLS_KEY": "/run/secrets/redis-tls/server.key",
+            "REDIS_TLS_CA_CERT": "/run/secrets/redis-tls/ca.crt",
+            "REDIS_TLS_CA_CERT_HOST": str(ROOT / "redis" / "tls" / "ca.crt"),
+        })
+        if not (redis_tls_dir / "server.crt").is_file():
+            subprocess.run([str(ROOT / "redis" / "generate-dev-tls.sh")], cwd=ROOT, check=True)
+
     print("Environment files are present with owner-only permissions.")
     print("Placeholder passwords were replaced with independent random secrets.")
-    print("Certificate and snapshot directories are ready; no certificate was generated.")
+    print("Redis development TLS is prepared when a local Redis environment file is first created.")
+    print("Production certificates and snapshot storage must still be provided by the deployment environment.")
     print("Store matching application credentials in the BE secret manager or run sync-backend.")
 
 
@@ -343,6 +358,23 @@ def validate(args: argparse.Namespace) -> None:
         compose_config(*compose_args, env=preflight_env)
 
     if not production:
+        redis = configs["redis"]
+        if redis.get("REDIS_TLS_ENABLED", "false").lower() == "true":
+            redis_dir = path_from_env(ROOT / "redis", redis.get("REDIS_TLS_CERTS_DIR", "./tls/server")).resolve()
+            validate_config_path(redis_dir, "REDIS_TLS_CERTS_DIR")
+            verify_certificate(redis_dir / "server.crt", redis_dir / "server.key", redis_dir / "ca.crt",
+                               [redis.get("REDIS_EXTERNAL_IP", "127.0.0.1")], "Redis/Sentinel")
+            host_ca_setting = redis.get("REDIS_TLS_CA_CERT_HOST", "")
+            if not host_ca_setting or not Path(host_ca_setting).is_absolute():
+                raise SetupError("Set REDIS_TLS_CA_CERT_HOST to an absolute CA path readable by BE clients.")
+            host_ca = Path(host_ca_setting)
+            validate_config_path(host_ca, "REDIS_TLS_CA_CERT_HOST")
+            if not host_ca.is_file():
+                raise SetupError("REDIS_TLS_CA_CERT_HOST must point to an existing CA certificate.")
+            result = subprocess.run(["openssl", "verify", "-CAfile", str(host_ca),
+                                     str(redis_dir / "server.crt")], capture_output=True, text=True)
+            if result.returncode:
+                raise SetupError("REDIS_TLS_CA_CERT_HOST does not validate the Redis/Sentinel certificate.")
         print("Development configuration and Compose files are valid.")
         return
 
@@ -359,6 +391,8 @@ def validate(args: argparse.Namespace) -> None:
         raise SetupError("Production requires ES_SCHEME=https.")
     if not redis.get("REDIS_SENTINEL_USER") or not redis.get("REDIS_SENTINEL_PASSWORD"):
         raise SetupError("Production requires a dedicated Redis Sentinel reader account.")
+    if redis.get("REDIS_TLS_ENABLED", "false").lower() != "true":
+        raise SetupError("Production requires verified TLS for Redis nodes, replication, and Sentinel.")
 
     sql_host = (args.sql_host or os.environ.get("AGORA_DB_HOST") or mssql.get("MSSQL_MANAGEMENT_HOST", "")
                 or mssql.get("MSSQL_EXTERNAL_IP", ""))
@@ -369,9 +403,10 @@ def validate(args: argparse.Namespace) -> None:
     private_ipv4(elastic.get("ES_EXTERNAL_IP", ""), "Elasticsearch bind address")
     private_node_ip(redis.get("REDIS_EXTERNAL_IP", ""), "Redis client address")
 
-    seeds = args.redis_sentinels or os.environ.get("AGORA_REDIS_SENTINELS", "")
+    seeds = (args.redis_sentinels or os.environ.get("AGORA_REDIS_SENTINELS", "")
+             or redis.get("REDIS_SENTINELS", ""))
     for host, _ in parse_sentinels(seeds):
-        validate_host(host, "Redis Sentinel seed")
+        validate_host(host, "Redis Sentinel seed", require_private=True)
 
     backup_root = require_mounted_directory(args.backup_root or os.environ.get("AGORA_BACKUP_ROOT", ""),
                                             "--backup-root / AGORA_BACKUP_ROOT")
@@ -388,6 +423,23 @@ def validate(args: argparse.Namespace) -> None:
     verify_certificate(sql_dir / "server.crt", sql_dir / "server.key", sql_dir / "ca.crt",
                        [sql_host, args.sql_node_hostname or os.environ.get("MSSQL_NODE_HOSTNAME", "")], "SQL Server")
     verify_certificate(es_dir / "http.crt", es_dir / "http.key", es_dir / "ca.crt", [es_host], "Elasticsearch")
+    redis_dir = path_from_env(ROOT / "redis", redis.get("REDIS_TLS_CERTS_DIR", "./tls/server")).resolve()
+    validate_config_path(redis_dir, "REDIS_TLS_CERTS_DIR")
+    verify_certificate(redis_dir / "server.crt", redis_dir / "server.key", redis_dir / "ca.crt",
+                       [redis.get("REDIS_EXTERNAL_IP", "")], "Redis/Sentinel")
+    redis_ca_setting = redis.get("REDIS_TLS_CA_CERT_HOST", "")
+    if not redis_ca_setting or not Path(redis_ca_setting).is_absolute():
+        raise SetupError("Set REDIS_TLS_CA_CERT_HOST to an absolute host path for BE Redis TLS verification.")
+    host_redis_ca = Path(redis_ca_setting)
+    validate_config_path(host_redis_ca, "REDIS_TLS_CA_CERT_HOST")
+    if not host_redis_ca.is_file():
+        raise SetupError("Set REDIS_TLS_CA_CERT_HOST to an existing CA certificate file.")
+    redis_ca_check = subprocess.run(
+        ["openssl", "verify", "-CAfile", str(host_redis_ca), str(redis_dir / "server.crt")],
+        capture_output=True, text=True,
+    )
+    if redis_ca_check.returncode:
+        raise SetupError("Redis REDIS_TLS_CA_CERT_HOST does not validate the configured Redis certificate.")
     es_ca_setting = elastic.get("ES_CA_CERT", "")
     if not es_ca_setting or not Path(es_ca_setting).is_absolute():
         raise SetupError("Set Elasticsearch ES_CA_CERT to an absolute host path for DB management scripts.")
@@ -399,7 +451,7 @@ def validate(args: argparse.Namespace) -> None:
                               capture_output=True, text=True)
     if ca_check.returncode:
         raise SetupError("Elasticsearch ES_CA_CERT does not validate the configured HTTPS certificate.")
-    print("Production credentials, private endpoints, SQL/ES TLS chains and SANs, and Compose syntax are valid.")
+    print("Production credentials, private endpoints, Redis/Sentinel and SQL/ES TLS chains, SANs, and Compose syntax are valid.")
     print("Firewall rules, host separation, Pacemaker quorum/fencing, and restore exercises still require target infrastructure.")
 
 
@@ -417,10 +469,11 @@ def configure_production(args: argparse.Namespace) -> None:
     private_node_ip(args.redis_primary_ip, "--redis-primary-ip")
     sentinels = parse_sentinels(args.redis_sentinels)
     for host, _ in sentinels:
-        validate_host(host, "Redis Sentinel seed")
+        validate_host(host, "Redis Sentinel seed", require_private=True)
 
     sql_dir = require_absolute_directory(args.sql_cert_dir, "--sql-cert-dir")
     es_dir = require_absolute_directory(args.es_cert_dir, "--es-cert-dir")
+    redis_dir = require_absolute_directory(args.redis_cert_dir, "--redis-cert-dir")
     backup_root = require_mounted_directory(args.backup_root, "--backup-root")
     snapshot_dir = Path(args.es_snapshot_dir).expanduser() if args.es_snapshot_dir else backup_root / "elasticsearch-snapshots"
     if not snapshot_dir.is_absolute():
@@ -436,6 +489,8 @@ def configure_production(args: argparse.Namespace) -> None:
                        [args.sql_host, args.sql_node_hostname], "SQL Server")
     verify_certificate(es_dir / "http.crt", es_dir / "http.key", es_dir / "ca.crt",
                        [args.es_host], "Elasticsearch")
+    verify_certificate(redis_dir / "server.crt", redis_dir / "server.key", redis_dir / "ca.crt",
+                       [args.redis_primary_ip], "Redis/Sentinel")
 
     snapshot_dir.mkdir(parents=True, exist_ok=True, mode=0o750)
     os.chmod(snapshot_dir, 0o750)
@@ -451,6 +506,13 @@ def configure_production(args: argparse.Namespace) -> None:
     })
     update_env_file(ENV_FILES["redis"], {
         "REDIS_EXTERNAL_IP": args.redis_primary_ip,
+        "REDIS_SENTINELS": ",".join(f"{host}:{port}" for host, port in sentinels),
+        "REDIS_TLS_ENABLED": "true",
+        "REDIS_TLS_CERTS_DIR": str(redis_dir),
+        "REDIS_TLS_CERTIFICATE": "/run/secrets/redis-tls/server.crt",
+        "REDIS_TLS_KEY": "/run/secrets/redis-tls/server.key",
+        "REDIS_TLS_CA_CERT": "/run/secrets/redis-tls/ca.crt",
+        "REDIS_TLS_CA_CERT_HOST": str(redis_dir / "ca.crt"),
     })
     update_env_file(ENV_FILES["elasticsearch"], {
         "ES_EXTERNAL_IP": args.es_bind_ip,
@@ -483,23 +545,41 @@ def sync_backend(args: argparse.Namespace) -> None:
         raise SetupError("Backend synchronization requires verified SQL TLS configuration.")
     if elastic.get("ES_HTTP_TLS_ENABLED", "false").lower() != "true":
         raise SetupError("Backend synchronization requires Elasticsearch HTTPS.")
+    if redis.get("REDIS_TLS_ENABLED", "false").lower() != "true":
+        raise SetupError("Backend synchronization requires verified Redis/Sentinel TLS.")
     sentinels = parse_sentinels(args.redis_sentinels)
     if not 1 <= args.db_port <= 65535 or not 1 <= args.es_port <= 65535:
         raise SetupError("Backend SQL and Elasticsearch ports must be between 1 and 65535.")
     validate_host(args.db_host, "SQL listener")
     validate_host(args.es_host, "Elasticsearch endpoint")
     for host, _ in sentinels:
-        validate_host(host, "Redis Sentinel seed")
+        validate_host(host, "Redis Sentinel seed", require_private=True)
     if not Path(args.es_ca_cert).is_absolute():
         raise SetupError("--es-ca-cert must be the absolute CA path available inside the BE runtime.")
+    if not Path(args.redis_ca_cert).is_absolute():
+        raise SetupError("--redis-ca-cert must be the absolute CA path available inside the BE runtime.")
     if not Path(args.db_freetds_conf).is_absolute():
         raise SetupError("--db-freetds-conf must be the absolute FreeTDS config path available to C++.")
     validate_config_path(Path(args.es_ca_cert), "--es-ca-cert")
+    validate_config_path(Path(args.redis_ca_cert), "--redis-ca-cert")
     validate_config_path(Path(args.db_freetds_conf), "--db-freetds-conf")
     sql_dir = path_from_env(ROOT / "mssql", mssql.get("MSSQL_TLS_CERTS_DIR", "./tls"))
     es_dir = path_from_env(ROOT / "elasticsearch", elastic.get("ES_TLS_CERTS_DIR", "./certs"))
+    redis_dir = path_from_env(ROOT / "redis", redis.get("REDIS_TLS_CERTS_DIR", "./tls/server"))
     verify_certificate(sql_dir / "server.crt", sql_dir / "server.key", sql_dir / "ca.crt", [args.db_host], "SQL Server")
     verify_certificate(es_dir / "http.crt", es_dir / "http.key", es_dir / "ca.crt", [args.es_host], "Elasticsearch")
+    verify_certificate(redis_dir / "server.crt", redis_dir / "server.key", redis_dir / "ca.crt",
+                       [redis.get("REDIS_EXTERNAL_IP", "")], "Redis/Sentinel")
+    redis_ca = Path(args.redis_ca_cert)
+    validate_config_path(redis_ca, "--redis-ca-cert")
+    if not redis_ca.is_file():
+        raise SetupError("--redis-ca-cert must be a readable CA certificate file in the BE runtime.")
+    redis_ca_check = subprocess.run(
+        ["openssl", "verify", "-CAfile", str(redis_ca), str(redis_dir / "server.crt")],
+        capture_output=True, text=True,
+    )
+    if redis_ca_check.returncode:
+        raise SetupError("--redis-ca-cert does not validate the configured Redis/Sentinel certificate.")
 
     backend_input = Path(args.backend_env).expanduser()
     if backend_input.is_symlink():
@@ -535,6 +615,8 @@ def sync_backend(args: argparse.Namespace) -> None:
         "REDIS_SENTINEL_MASTER_NAME": redis.get("REDIS_SENTINEL_MASTER_NAME", "agora-master"),
         "REDIS_SENTINEL_USER": redis["REDIS_SENTINEL_USER"],
         "REDIS_SENTINEL_PASSWORD": redis["REDIS_SENTINEL_PASSWORD"],
+        "REDIS_TLS_ENABLED": "true",
+        "REDIS_TLS_CA_CERT": args.redis_ca_cert,
     }
     if any("\n" in value or "\r" in value for value in desired.values()):
         raise SetupError("A backend setting contains an unsupported line break.")
@@ -615,7 +697,7 @@ def deploy_redis_node(args: argparse.Namespace) -> None:
     private_node_ip(env.get("REDIS_NODE_BIND_IP", announce_ip), "REDIS_NODE_BIND_IP")
     sentinel_bind_ip = env.get("REDIS_SENTINEL_BIND_IP", announce_ip)
     private_node_ip(sentinel_bind_ip, "REDIS_SENTINEL_BIND_IP")
-    validate_host(master_host, "REDIS_SENTINEL_MASTER_HOST")
+    validate_host(master_host, "REDIS_SENTINEL_MASTER_HOST", require_private=True)
     primary_host = env.get("REDIS_NODE_PRIMARY_HOST", "")
     if role == "primary" and primary_host:
         raise SetupError("The initial primary must not set REDIS_NODE_PRIMARY_HOST.")
@@ -625,6 +707,14 @@ def deploy_redis_node(args: argparse.Namespace) -> None:
         validate_host(primary_host, "REDIS_NODE_PRIMARY_HOST")
     if not configs["redis"].get("REDIS_SENTINEL_USER") or not configs["redis"].get("REDIS_SENTINEL_PASSWORD"):
         raise SetupError("Each production Redis node requires the dedicated Sentinel reader account.")
+    if configs["redis"].get("REDIS_TLS_ENABLED", "false").lower() != "true":
+        raise SetupError("Each production Redis node requires Redis/Sentinel TLS.")
+    tls_dir = require_absolute_directory(
+        env.get("REDIS_TLS_CERTS_DIR", configs["redis"].get("REDIS_TLS_CERTS_DIR", "")),
+        "REDIS_TLS_CERTS_DIR",
+    )
+    verify_certificate(tls_dir / "server.crt", tls_dir / "server.key", tls_dir / "ca.crt",
+                       [announce_ip], "Redis/Sentinel")
     private_node_ip(configs["redis"].get("REDIS_EXTERNAL_IP", ""), "REDIS_EXTERNAL_IP")
     if not env.get("REDIS_COMPOSE_PROJECT"):
         raise SetupError("Set a unique REDIS_COMPOSE_PROJECT for this host.")
@@ -684,6 +774,7 @@ def build_parser() -> argparse.ArgumentParser:
     production.add_argument("--redis-sentinels", required=True, help="Three comma-separated private host:26379 seeds.")
     production.add_argument("--sql-cert-dir", required=True, help="Absolute directory containing server.crt, server.key, and ca.crt.")
     production.add_argument("--es-cert-dir", required=True, help="Absolute directory containing http.crt, http.key, and ca.crt.")
+    production.add_argument("--redis-cert-dir", required=True, help="Absolute directory containing Redis server.crt, server.key, and ca.crt.")
     production.add_argument("--backup-root", required=True, help="Existing mounted durable-storage root.")
     production.add_argument("--es-snapshot-dir", help="Optional absolute directory inside --backup-root.")
     sync = subparsers.add_parser("sync-backend", help="Copy DB connection settings into an existing BE .env without changing unrelated keys.")
@@ -695,6 +786,7 @@ def build_parser() -> argparse.ArgumentParser:
     sync.add_argument("--es-host", required=True)
     sync.add_argument("--es-port", type=int, default=9200)
     sync.add_argument("--es-ca-cert", required=True, help="Absolute CA path available inside the BE runtime.")
+    sync.add_argument("--redis-ca-cert", required=True, help="Absolute Redis CA path available inside the BE runtime.")
     sync.add_argument("--redis-sentinels", required=True, help="Three comma-separated private host:26379 seeds.")
     subparsers.add_parser("prepare-storage", help="Prepare Elasticsearch snapshot/certificate directories and UID access.")
     subparsers.add_parser("deploy-local", help="Start and initialize the development single-node stack.")
