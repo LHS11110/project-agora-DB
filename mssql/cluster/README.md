@@ -13,7 +13,7 @@ Linux host and manage the Availability Group with Pacemaker on the hosts.
   replica for automatic failover; that SQL Server instance can use Express.
 - Configure an `EXTERNAL` Availability Group and a Pacemaker listener/VIP.
   Point the existing BE `DB_HOST` value at that listener name. For SQL
-  maintenance scripts, set `MSSQL_EXTERNAL_IP`/`MSSQL_EXTERNAL_PORT` in
+  maintenance scripts, set `MSSQL_MANAGEMENT_HOST`/`MSSQL_MANAGEMENT_PORT` in
   `mssql/.env` to the listener and run them from a host with `sqlcmd`
   installed. `DB_NAME`, tables, and T-SQL remain unchanged.
 - Run the SQL Server nodes on separate Linux hosts or VMs. Do not use the
@@ -38,6 +38,7 @@ MSSQL_NODE_BIND_IP=10.0.0.11 \
 MSSQL_NODE_PID=Standard \
 MSSQL_NODE_PORT=1433 \
 MSSQL_AG_ENDPOINT_PORT=5022 \
+MSSQL_NODE_TLS_CERTS_DIR=/etc/project-agora/mssql-tls \
 docker compose --env-file mssql/.env -p agora-mssql-node-a \
   -f mssql/cluster/docker-compose.node.yml up -d
 ```
@@ -50,14 +51,18 @@ Compose project name. Make each node hostname resolve to its private IP from
 every SQL host. Permit SQL
 traffic on 1433 and the database mirroring endpoint on 5022 between the nodes;
 configure Pacemaker/Corosync ports and fencing through the host operating system.
+`MSSQL_NODE_TLS_CERTS_DIR` must point to that host's directory containing
+`server.crt`, `server.key`, and `ca.crt`; it is independent from the relative
+`MSSQL_TLS_CERTS_DIR` used by the standalone development Compose file.
 
 ## Bootstrap order
 
 1. Install and configure Pacemaker, Corosync, and a fencing agent on all three
    hosts. Confirm quorum and fencing before creating production resources.
 2. Start two SQL Server Standard data nodes and one SQL Server Express
-   configuration-only node with the Compose file above. Set
-   `MSSQL_EXTERNAL_IP` to the intended primary node while bootstrapping; after
+   configuration-only node with the Compose file above. Keep
+   `MSSQL_EXTERNAL_IP` on each host at its private interface bind address. Set
+   `MSSQL_MANAGEMENT_HOST` to the intended primary while bootstrapping; after
    the listener is online, change it to the listener address for maintenance
    scripts.
 3. For a new deployment, initialize `agora_db` and its schema on the intended
@@ -66,8 +71,8 @@ configure Pacemaker/Corosync ports and fencing through the host operating system
    contain the current database. Run `./mssql/init-mssql.sh` against that
    restored database to establish the application login and verify/update the
    existing schema without replacing its rows. During cutover, pause writes
-   for the final backup and point `MSSQL_EXTERNAL_IP`/`MSSQL_EXTERNAL_PORT` at
-   the current primary until the listener is ready.
+   for the final backup and point `MSSQL_MANAGEMENT_HOST`/`MSSQL_MANAGEMENT_PORT`
+   at the current primary until the listener is ready.
 4. Set the database to FULL recovery and take a full backup if it is not
    already in that state. Create matching server logins on the secondary data
    replica with the primary login's SID. Availability Groups replicate the

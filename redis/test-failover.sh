@@ -45,8 +45,7 @@ is_running() {
 
 node_role() {
   local info
-  info="$(docker exec -e REDISCLI_AUTH="$REDIS_ADMIN_PASSWORD" "$1" \
-    redis-cli --raw INFO replication 2>/dev/null)" || return 1
+  info="$("$SCRIPT_DIR/redis-container-cli.sh" "$1" admin --raw INFO replication 2>/dev/null)" || return 1
   printf '%s\n' "$info" | sed -n 's/^role://p' | tr -d '\r' | head -n 1
 }
 
@@ -67,8 +66,7 @@ find_primary() {
 app_cli() {
   local node="$1"
   shift
-  docker exec -e REDISCLI_AUTH="$REDIS_APP_PASSWORD" "$node" \
-    redis-cli --user "$REDIS_APP_USER" --no-auth-warning --raw "$@"
+  "$SCRIPT_DIR/redis-container-cli.sh" "$node" app --raw "$@"
 }
 
 verify_probe() {
@@ -82,14 +80,14 @@ verify_probe() {
 
 sentinel_matches_primary() {
   local primary="$1" sentinel report host port ip aliases
-  local sentinel_auth_args=()
-  if [ -n "$REDIS_SENTINEL_PASSWORD" ]; then
-    sentinel_auth_args=(--user "$REDIS_SENTINEL_USER")
-  fi
   for sentinel in "${SENTINELS[@]}"; do
-    report="$(docker exec -e REDISCLI_AUTH="$REDIS_SENTINEL_PASSWORD" "$sentinel" \
-      redis-cli --raw -p 26379 "${sentinel_auth_args[@]}" \
-      SENTINEL get-master-addr-by-name "$MASTER_NAME" 2>/dev/null)" || return 1
+    if [ -n "$REDIS_SENTINEL_PASSWORD" ]; then
+      report="$("$SCRIPT_DIR/redis-container-cli.sh" "$sentinel" sentinel --raw \
+        SENTINEL get-master-addr-by-name "$MASTER_NAME" 2>/dev/null)" || return 1
+    else
+      report="$(docker exec "$sentinel" redis-cli --raw -p 26379 \
+        SENTINEL get-master-addr-by-name "$MASTER_NAME" 2>/dev/null)" || return 1
+    fi
     host="$(printf '%s\n' "$report" | sed -n '1p' | tr -d '\r')"
     port="$(printf '%s\n' "$report" | sed -n '2p' | tr -d '\r')"
     [ "$port" = "6379" ] || return 1

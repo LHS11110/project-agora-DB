@@ -30,8 +30,8 @@ REDIS_NODE_PORT="${REDIS_NODE_PORT:-6379}"
 
 ready=false
 for attempt in {1..90}; do
-  if docker exec -e REDISCLI_AUTH="$REDIS_PASSWORD" agora-redis-node \
-    redis-cli -h "$REDIS_NODE_BIND_IP" -p "$REDIS_NODE_PORT" ping 2>/dev/null | grep -q PONG; then
+  if "$SCRIPT_DIR/redis-container-cli.sh" agora-redis-node admin \
+    -h "$REDIS_NODE_BIND_IP" -p "$REDIS_NODE_PORT" ping 2>/dev/null | grep -q PONG; then
     ready=true
     break
   fi
@@ -42,17 +42,12 @@ if [ "$ready" != true ]; then
   exit 1
 fi
 
-docker exec -e REDISCLI_AUTH="$REDIS_PASSWORD" agora-redis-node redis-cli \
-  -h "$REDIS_NODE_BIND_IP" -p "$REDIS_NODE_PORT" \
-  ACL SETUSER "$REDIS_USER" reset on ">$REDIS_USER_PASSWORD" \
-  "~${REDIS_KEY_PREFIX}*" "~${REDIS_INDEX_NAME}*" resetchannels -@all \
-  +auth +ping +role +json.get +json.set +json.arrlen +json.arrappend +json.del \
-  +get +del +exists +keys +eval +ft.search +ft.info
-docker exec -e REDISCLI_AUTH="$REDIS_PASSWORD" agora-redis-node \
-  redis-cli -h "$REDIS_NODE_BIND_IP" -p "$REDIS_NODE_PORT" ACL SAVE
+"$SCRIPT_DIR/redis-container-cli.sh" agora-redis-node provision-app
+"$SCRIPT_DIR/redis-container-cli.sh" agora-redis-node admin \
+  -h "$REDIS_NODE_BIND_IP" -p "$REDIS_NODE_PORT" ACL SAVE
 
-ROLE=$(docker exec -e REDISCLI_AUTH="$REDIS_PASSWORD" agora-redis-node \
-  redis-cli -h "$REDIS_NODE_BIND_IP" -p "$REDIS_NODE_PORT" --raw INFO replication \
+ROLE=$("$SCRIPT_DIR/redis-container-cli.sh" agora-redis-node admin \
+  -h "$REDIS_NODE_BIND_IP" -p "$REDIS_NODE_PORT" --raw INFO replication \
   | sed -n 's/^role://p' | tr -d '\r')
 if [ "$ROLE" = "master" ]; then
   REDIS_CONNECT_HOST="$REDIS_NODE_BIND_IP" REDIS_CONNECT_PORT="$REDIS_NODE_PORT" \

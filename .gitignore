@@ -37,6 +37,7 @@ desktop.ini
 *.key
 *.cert
 *.crt
+elasticsearch/certs/
 
 # ==========================================
 # Python (Bytecode, Caches & Environments)

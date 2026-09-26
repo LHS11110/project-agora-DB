@@ -12,6 +12,7 @@ services:
     environment:
       REDIS_NODE_PRIMARY_HOST: ${REDIS_NODE_PRIMARY_HOST:-}
       REDIS_NODE_PRIMARY_PORT: ${REDIS_NODE_PRIMARY_PORT:-6379}
+      REDIS_NODE_APPENDONLY: "${REDIS_NODE_APPENDONLY:-yes}"
       REDIS_NODE_ANNOUNCE_IP: ${REDIS_NODE_ANNOUNCE_IP:?REDIS_NODE_ANNOUNCE_IP must be reachable from every node and client}
       REDIS_NODE_BIND_IP: ${REDIS_NODE_BIND_IP:-${REDIS_NODE_ANNOUNCE_IP:?REDIS_NODE_ANNOUNCE_IP is required}}
       REDIS_NODE_PORT: ${REDIS_NODE_PORT:-6379}
@@ -20,7 +21,7 @@ services:
       - ./redis-node-entrypoint.sh:/usr/local/bin/redis-node-entrypoint.sh:ro
       - redis_node_data:/data
     healthcheck:
-      test: ["CMD-SHELL", "REDISCLI_AUTH='$${REDIS_PASSWORD}' redis-cli -h '$${REDIS_NODE_BIND_IP}' -p '$${REDIS_NODE_PORT}' ping | grep -q PONG"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$${REDIS_PASSWORD}\" redis-cli -h \"$${REDIS_NODE_BIND_IP}\" -p \"$${REDIS_NODE_PORT}\" ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 10

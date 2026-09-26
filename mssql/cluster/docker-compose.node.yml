@@ -2,7 +2,7 @@
 # this Compose file, and manages the external-type Availability Group resource.
 services:
   mssql-ag-node:
-    image: mcr.microsoft.com/mssql/server:2022-CU26-ubuntu-22.04
+    image: mcr.microsoft.com/mssql/server:2022-CU27-ubuntu-22.04
     hostname: ${MSSQL_NODE_HOSTNAME:?MSSQL_NODE_HOSTNAME is required (15 characters or fewer)}
     restart: unless-stopped
     environment:
@@ -20,13 +20,13 @@ services:
     volumes:
       - ../start-mssql.sh:/usr/local/bin/start-mssql.sh:ro
       - mssql_ag_data:/var/opt/mssql
-      - ${MSSQL_TLS_CERTS_DIR:-../tls}:/run/secrets/mssql-tls:ro
+      - ${MSSQL_NODE_TLS_CERTS_DIR:-../tls}:/run/secrets/mssql-tls:ro
     entrypoint: ["/bin/bash", "/usr/local/bin/start-mssql.sh"]
     command: ["/opt/mssql/bin/sqlservr"]
     healthcheck:
       test:
         - CMD-SHELL
-        - /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$${MSSQL_SA_PASSWORD}" -C -Q "SELECT 1" || exit 1
+        - SQLCMDPASSWORD="$${MSSQL_SA_PASSWORD}" /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -Q "SELECT 1" || exit 1
       interval: 20s
       timeout: 10s
       retries: 5

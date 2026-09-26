@@ -14,11 +14,17 @@ DB_TRUST_CERT_OVERRIDE="${DB_TRUST_SERVER_CERTIFICATE:-}"
 
 # 1. MS SQL 환경 변수 기본값 로드 (mssql/.env 우선 참조)
 if [ -f "$ROOT_DIR/mssql/.env" ]; then
-  MSSQL_ENV_HOST=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep 'MSSQL_EXTERNAL_IP=' | cut -d '=' -f2- | tr -d '\r' || true)
+  MSSQL_ENV_HOST=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep '^MSSQL_MANAGEMENT_HOST=' | cut -d '=' -f2- | tr -d '\r' || true)
+  if [ -z "$MSSQL_ENV_HOST" ]; then
+    MSSQL_ENV_HOST=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep '^MSSQL_EXTERNAL_IP=' | cut -d '=' -f2- | tr -d '\r' || true)
+  fi
   if [ -z "$MSSQL_ENV_HOST" ]; then
     MSSQL_ENV_HOST=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep 'MSSQL_HOST=' | cut -d '=' -f2- | tr -d '\r' || true)
   fi
-  MSSQL_ENV_PORT=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep 'MSSQL_EXTERNAL_PORT=' | cut -d '=' -f2- | tr -d '\r' || true)
+  MSSQL_ENV_PORT=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep '^MSSQL_MANAGEMENT_PORT=' | cut -d '=' -f2- | tr -d '\r' || true)
+  if [ -z "$MSSQL_ENV_PORT" ]; then
+    MSSQL_ENV_PORT=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep '^MSSQL_EXTERNAL_PORT=' | cut -d '=' -f2- | tr -d '\r' || true)
+  fi
   if [ -z "$MSSQL_ENV_PORT" ]; then
     MSSQL_ENV_PORT=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep 'MSSQL_PORT=' | cut -d '=' -f2- | tr -d '\r' || true)
   fi
@@ -74,11 +80,12 @@ echo "=================================================================="
 run_mssql_cmd() {
   local sql_query="$1"
   if command -v sqlcmd &> /dev/null; then
-    sqlcmd -S "$MSSQL_HOST,$MSSQL_PORT" -U "$MSSQL_USER" -P "$MSSQL_PASS" "${SQLCMD_TLS_ARGS[@]}" -b -I -d "$MSSQL_DB" -Q "$sql_query" -W
+    SQLCMDPASSWORD="$MSSQL_PASS" sqlcmd -S "$MSSQL_HOST,$MSSQL_PORT" -U "$MSSQL_USER" "${SQLCMD_TLS_ARGS[@]}" -b -I -d "$MSSQL_DB" -Q "$sql_query" -W
   elif [[ "$MSSQL_HOST" == "127.0.0.1" || "$MSSQL_HOST" == "localhost" || "$MSSQL_HOST" == "::1" ]] \
       && docker inspect --format '{{.State.Running}}' agora-mssql 2>/dev/null | grep -q '^true$'; then
-    docker exec agora-mssql /opt/mssql-tools18/bin/sqlcmd \
-      -S localhost -U "$MSSQL_USER" -P "$MSSQL_PASS" "${SQLCMD_TLS_ARGS[@]}" -b -I -d "$MSSQL_DB" -Q "$sql_query" -W
+    docker exec agora-mssql /bin/bash -lc \
+      'export SQLCMDPASSWORD="$MSSQL_PASSWORD"; exec /opt/mssql-tools18/bin/sqlcmd "$@"' \
+      sqlcmd -S localhost -U "$MSSQL_USER" "${SQLCMD_TLS_ARGS[@]}" -b -I -d "$MSSQL_DB" -Q "$sql_query" -W
   else
     echo "[ERROR] sqlcmd is required for the configured SQL Server endpoint $MSSQL_HOST:$MSSQL_PORT. Docker fallback is only available for a running local agora-mssql container." >&2
     return 127

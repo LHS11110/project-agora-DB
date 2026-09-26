@@ -58,7 +58,7 @@ run_cli() {
   elif command -v redis-cli &> /dev/null; then
     REDISCLI_AUTH="$REDIS_ADMIN_PASS" redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" "$@"
   else
-    docker exec -e REDISCLI_AUTH="$REDIS_ADMIN_PASS" agora-redis-stack redis-cli "$@"
+    "$SCRIPT_DIR/redis-container-cli.sh" agora-redis-stack admin "$@"
   fi
 }
 

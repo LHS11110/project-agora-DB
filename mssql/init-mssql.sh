@@ -20,13 +20,13 @@ if [ -n "$DB_TRUST_CERT_OVERRIDE" ]; then
   DB_TRUST_SERVER_CERTIFICATE="$DB_TRUST_CERT_OVERRIDE"
 fi
 
-MSSQL_RAW_HOST="${MSSQL_EXTERNAL_IP:-${MSSQL_HOST:-127.0.0.1}}"
+MSSQL_RAW_HOST="${MSSQL_MANAGEMENT_HOST:-${MSSQL_EXTERNAL_IP:-${MSSQL_HOST:-127.0.0.1}}}"
 if [ "$MSSQL_RAW_HOST" = "0.0.0.0" ]; then
   MSSQL_HOST="127.0.0.1"
 else
   MSSQL_HOST="$MSSQL_RAW_HOST"
 fi
-MSSQL_PORT="${MSSQL_EXTERNAL_PORT:-${MSSQL_PORT:-1433}}"
+MSSQL_PORT="${MSSQL_MANAGEMENT_PORT:-${MSSQL_EXTERNAL_PORT:-${MSSQL_PORT:-1433}}}"
 : "${MSSQL_SA_PASSWORD:?MSSQL_SA_PASSWORD must be set in mssql/.env}"
 MSSQL_SA_PASS="$MSSQL_SA_PASSWORD"
 MSSQL_DB="${MSSQL_DB:-agora_db}"
@@ -58,7 +58,7 @@ echo "테이블 구성:   $MSSQL_TABLE_USERS, $MSSQL_TABLE_REDIS_SERVER, $MSSQL_
 # 로컬 sqlcmd가 있으면 로컬 사용, 없으면 docker exec fallback 사용
 if command -v sqlcmd &> /dev/null; then
   echo "로컬 sqlcmd를 사용하여 초기화합니다..."
-  sqlcmd -S "$MSSQL_HOST,$MSSQL_PORT" -U sa -P "$MSSQL_SA_PASS" "${SQLCMD_TRUST_ARGS[@]}" -b -I \
+  SQLCMDPASSWORD="$MSSQL_SA_PASS" sqlcmd -S "$MSSQL_HOST,$MSSQL_PORT" -U sa "${SQLCMD_TRUST_ARGS[@]}" -b -I \
     -v DB_NAME="$MSSQL_DB" DB_USER="$MSSQL_USER" DB_PASSWORD="$MSSQL_PASS" \
        TABLE_USERS="$MSSQL_TABLE_USERS" TABLE_REDIS_SERVER="$MSSQL_TABLE_REDIS_SERVER" \
        TABLE_CANVAS_INFO="$MSSQL_TABLE_CANVAS_INFO" TABLE_CANVAS_CACHE="$MSSQL_TABLE_CANVAS_INFO" \
@@ -66,8 +66,9 @@ if command -v sqlcmd &> /dev/null; then
     -i "$SQL_FILE"
 else
   echo "Docker 컨테이너(agora-mssql) 내부 sqlcmd를 사용하여 초기화합니다..."
-  docker exec -i agora-mssql /opt/mssql-tools18/bin/sqlcmd \
-    -S localhost -U sa -P "$MSSQL_SA_PASS" "${SQLCMD_TRUST_ARGS[@]}" -b -I \
+  docker exec -i agora-mssql /bin/bash -lc \
+    'export SQLCMDPASSWORD="$MSSQL_SA_PASSWORD"; exec /opt/mssql-tools18/bin/sqlcmd "$@"' \
+    sqlcmd -S localhost -U sa "${SQLCMD_TRUST_ARGS[@]}" -b -I \
     -v DB_NAME="$MSSQL_DB" DB_USER="$MSSQL_USER" DB_PASSWORD="$MSSQL_PASS" \
        TABLE_USERS="$MSSQL_TABLE_USERS" TABLE_REDIS_SERVER="$MSSQL_TABLE_REDIS_SERVER" \
        TABLE_CANVAS_INFO="$MSSQL_TABLE_CANVAS_INFO" TABLE_CANVAS_CACHE="$MSSQL_TABLE_CANVAS_INFO" \
@@ -77,11 +78,12 @@ fi
 
 echo -e "\n=== 2. 런타임 사용자($MSSQL_USER) 최소 권한 및 접속 검증 ==="
 if command -v sqlcmd &> /dev/null; then
-  sqlcmd -S "$MSSQL_HOST,$MSSQL_PORT" -U "$MSSQL_USER" -P "$MSSQL_PASS" "${SQLCMD_TRUST_ARGS[@]}" -b -d "$MSSQL_DB" \
+  SQLCMDPASSWORD="$MSSQL_PASS" sqlcmd -S "$MSSQL_HOST,$MSSQL_PORT" -U "$MSSQL_USER" "${SQLCMD_TRUST_ARGS[@]}" -b -d "$MSSQL_DB" \
     -Q "SELECT DB_NAME() AS [database], USER_NAME() AS [db_role], SUSER_SNAME() AS [login_user], IS_ROLEMEMBER('agora_runtime') AS [is_runtime_member], IS_ROLEMEMBER('db_owner') AS [is_db_owner];"
 else
-  docker exec agora-mssql /opt/mssql-tools18/bin/sqlcmd \
-    -S localhost -U "$MSSQL_USER" -P "$MSSQL_PASS" "${SQLCMD_TRUST_ARGS[@]}" -b -d "$MSSQL_DB" \
+  docker exec agora-mssql /bin/bash -lc \
+    'export SQLCMDPASSWORD="$MSSQL_PASSWORD"; exec /opt/mssql-tools18/bin/sqlcmd "$@"' \
+    sqlcmd -S localhost -U "$MSSQL_USER" "${SQLCMD_TRUST_ARGS[@]}" -b -d "$MSSQL_DB" \
     -Q "SELECT DB_NAME() AS [database], USER_NAME() AS [db_role], SUSER_SNAME() AS [login_user], IS_ROLEMEMBER('agora_runtime') AS [is_runtime_member], IS_ROLEMEMBER('db_owner') AS [is_db_owner];"
 fi
 

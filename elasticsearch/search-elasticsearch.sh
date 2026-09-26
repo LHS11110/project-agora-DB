@@ -17,6 +17,7 @@ NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+source "$SCRIPT_DIR/curl-auth.sh"
 ES_HOST_OVERRIDE="${ES_TEST_HOST:-${ES_HOST:-}}"
 ES_PORT_OVERRIDE="${ES_TEST_PORT:-${ES_PORT:-}}"
 ES_SCHEME_OVERRIDE="${ES_SCHEME:-}"
@@ -75,7 +76,12 @@ fi
 ES_URL="$ES_SCHEME://$ES_IP:$ES_PORT"
 CURL_TLS_ARGS=()
 if [ -n "$ES_CA_CERT" ]; then CURL_TLS_ARGS+=(--cacert "$ES_CA_CERT"); fi
-curl_es() { curl -fsS "${CURL_TLS_ARGS[@]}" "$@"; }
+curl_es() {
+  local credentials="${2:?Elasticsearch credentials are required}"
+  [ "${1:-}" = "-u" ] || { echo "curl_es requires an explicit user credential" >&2; return 2; }
+  shift 2
+  es_curl_authenticated "${credentials%%:*}" "${credentials#*:}" "${CURL_TLS_ARGS[@]}" -fsS "$@"
+}
 
 SEARCH_KEYWORD=""
 DOC_ID=""

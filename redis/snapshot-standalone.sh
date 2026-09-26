@@ -13,7 +13,11 @@ REDIS_ADMIN_PASS=$(sed -n 's/^REDIS_PASSWORD=//p' "$ENV_FILE" | tail -n 1 | tr -
 : "${REDIS_ADMIN_PASS:?REDIS_PASSWORD must be set in redis/.env}"
 SNAPSHOT_PATH="${1:-/tmp/agora-redis-dump.rdb}"
 
-docker exec -e REDISCLI_AUTH="$REDIS_ADMIN_PASS" agora-redis-stack redis-cli SAVE
-docker cp agora-redis-stack:/data/dump.rdb "$SNAPSHOT_PATH"
+docker exec agora-redis-stack /bin/sh -c 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli SAVE'
+REDIS_DIR=$(docker exec agora-redis-stack /bin/sh -c 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli --raw CONFIG GET dir' | tail -n 1 | tr -d '\r')
+REDIS_RDB=$(docker exec agora-redis-stack /bin/sh -c 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli --raw CONFIG GET dbfilename' | tail -n 1 | tr -d '\r')
+: "${REDIS_DIR:?Redis did not report its data directory}"
+: "${REDIS_RDB:?Redis did not report its RDB filename}"
+docker cp "agora-redis-stack:$REDIS_DIR/$REDIS_RDB" "$SNAPSHOT_PATH"
 chmod 600 "$SNAPSHOT_PATH"
 echo "Redis snapshot saved to $SNAPSHOT_PATH"

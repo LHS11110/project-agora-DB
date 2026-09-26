@@ -31,7 +31,10 @@ else
 fi
 
 if [ -n "$ENV_FILE" ]; then
-  MSSQL_RAW_HOST=$(grep -v '^#' "$ENV_FILE" | grep 'MSSQL_EXTERNAL_IP=' | cut -d '=' -f2- | tr -d '\r' || true)
+  MSSQL_RAW_HOST=$(grep -v '^#' "$ENV_FILE" | grep '^MSSQL_MANAGEMENT_HOST=' | cut -d '=' -f2- | tr -d '\r' || true)
+  if [ -z "$MSSQL_RAW_HOST" ]; then
+    MSSQL_RAW_HOST=$(grep -v '^#' "$ENV_FILE" | grep '^MSSQL_EXTERNAL_IP=' | cut -d '=' -f2- | tr -d '\r' || true)
+  fi
   if [ -z "$MSSQL_RAW_HOST" ]; then
     MSSQL_RAW_HOST=$(grep -v '^#' "$ENV_FILE" | grep 'MSSQL_HOST=' | cut -d '=' -f2- | tr -d '\r' || echo "127.0.0.1")
   fi
@@ -39,7 +42,10 @@ if [ -n "$ENV_FILE" ]; then
   if [ "$MSSQL_RAW_HOST" != "0.0.0.0" ] && [ -n "$MSSQL_RAW_HOST" ]; then
     MSSQL_HOST="$MSSQL_RAW_HOST"
   fi
-  MSSQL_PORT=$(grep -v '^#' "$ENV_FILE" | grep 'MSSQL_EXTERNAL_PORT=' | cut -d '=' -f2- | tr -d '\r' || true)
+  MSSQL_PORT=$(grep -v '^#' "$ENV_FILE" | grep '^MSSQL_MANAGEMENT_PORT=' | cut -d '=' -f2- | tr -d '\r' || true)
+  if [ -z "$MSSQL_PORT" ]; then
+    MSSQL_PORT=$(grep -v '^#' "$ENV_FILE" | grep '^MSSQL_EXTERNAL_PORT=' | cut -d '=' -f2- | tr -d '\r' || true)
+  fi
   if [ -z "$MSSQL_PORT" ]; then
     MSSQL_PORT=$(grep -v '^#' "$ENV_FILE" | grep 'MSSQL_PORT=' | cut -d '=' -f2- | tr -d '\r' || echo "1433")
   fi
@@ -124,11 +130,12 @@ echo -e "${CYAN}================================================================
 run_query() {
   local sql="$1"
   if command -v sqlcmd &> /dev/null; then
-    sqlcmd -S "$MSSQL_HOST,$MSSQL_PORT" -U "$MSSQL_USER" -P "$MSSQL_PASS" "${SQLCMD_TLS_ARGS[@]}" -b -I -d "$MSSQL_DB" -Q "$sql" -W 2>&1
+    SQLCMDPASSWORD="$MSSQL_PASS" sqlcmd -S "$MSSQL_HOST,$MSSQL_PORT" -U "$MSSQL_USER" "${SQLCMD_TLS_ARGS[@]}" -b -I -d "$MSSQL_DB" -Q "$sql" -W 2>&1
   elif [[ "$MSSQL_HOST" == "127.0.0.1" || "$MSSQL_HOST" == "localhost" || "$MSSQL_HOST" == "::1" ]] \
       && docker inspect --format '{{.State.Running}}' agora-mssql 2>/dev/null | grep -q '^true$'; then
-    docker exec agora-mssql /opt/mssql-tools18/bin/sqlcmd \
-      -S localhost -U "$MSSQL_USER" -P "$MSSQL_PASS" "${SQLCMD_TLS_ARGS[@]}" -b -I -d "$MSSQL_DB" -Q "$sql" -W 2>&1
+    docker exec agora-mssql /bin/bash -lc \
+      'export SQLCMDPASSWORD="$MSSQL_PASSWORD"; exec /opt/mssql-tools18/bin/sqlcmd "$@"' \
+      sqlcmd -S localhost -U "$MSSQL_USER" "${SQLCMD_TLS_ARGS[@]}" -b -I -d "$MSSQL_DB" -Q "$sql" -W 2>&1
   else
     echo "[ERROR] sqlcmd is required for the configured SQL Server endpoint $MSSQL_HOST:$MSSQL_PORT. Docker fallback is only available for a running local agora-mssql container." >&2
     return 127

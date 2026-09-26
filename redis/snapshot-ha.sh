@@ -18,13 +18,13 @@ SOURCE_CONTAINER=""
 
 for candidate in agora-redis-primary agora-redis-replica-1 agora-redis-replica-2; do
   if [ "$(docker inspect -f '{{.State.Running}}' "$candidate" 2>/dev/null || true)" != "true" ]; then continue; fi
-  role=$(docker exec -e REDISCLI_AUTH="$REDIS_PASSWORD" "$candidate" redis-cli --raw INFO replication 2>/dev/null \
+  role=$("$SCRIPT_DIR/redis-container-cli.sh" "$candidate" admin --raw INFO replication 2>/dev/null \
     | sed -n 's/^role://p' | tr -d '\r')
   if [ "$role" = "master" ]; then SOURCE_CONTAINER="$candidate"; break; fi
 done
 
 if [ -n "$SOURCE_CONTAINER" ]; then
-  docker exec -e REDISCLI_AUTH="$REDIS_PASSWORD" "$SOURCE_CONTAINER" redis-cli --rdb "$TEMP_FILE"
+  "$SCRIPT_DIR/redis-container-cli.sh" "$SOURCE_CONTAINER" admin --rdb "$TEMP_FILE"
 elif [ "$(docker inspect -f '{{.State.Running}}' agora-redis-node 2>/dev/null || true)" = "true" ]; then
   "$SCRIPT_DIR/redis-ha-cli.sh" --rdb "$TEMP_FILE"
   SOURCE_CONTAINER=agora-redis-node

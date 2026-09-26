@@ -3,8 +3,9 @@
 Storage integration checks for the configured SQL Server, Elasticsearch, and Redis endpoints.
 
 The checks create uniquely named temporary records and remove them in finally blocks.
-They require sqlcmd on PATH. SQL certificate verification is enabled unless the explicit
-development-only DB_TRUST_SERVER_CERTIFICATE=true setting is provided.
+SQL verification uses sqlcmd on PATH or the local agora-mssql container. SQL certificate
+verification is enabled unless the explicit development-only DB_TRUST_SERVER_CERTIFICATE=true
+setting is provided.
 """
 
 import base64
@@ -174,6 +175,18 @@ def record_test(name, passed, detail=""):
     results.append((name, passed))
 
 
+def safe_error(error):
+    """Format failures without exposing credentials stored in command arguments."""
+    if isinstance(error, subprocess.CalledProcessError):
+        message = error.stderr or error.stdout or f"External command exited with status {error.returncode}."
+    else:
+        message = str(error)
+    for secret in (MSSQL_PASS, ES_PASS, REDIS_PASS, REDIS_SENTINEL_PASS):
+        if secret:
+            message = message.replace(secret, "<redacted>")
+    return message.strip()
+
+
 def sql_identifier(value):
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value):
         raise ValueError(f"Unsupported SQL table name: {value!r}")
@@ -187,18 +200,12 @@ def sql_server_target(host, port):
 
 
 def run_mssql_query(sql):
-    if shutil.which("sqlcmd") is None:
-        raise RuntimeError(
-            "sqlcmd is required on PATH. Install Microsoft sqlcmd, then rerun this check."
-        )
-    command = [
-        "sqlcmd",
+    sqlcmd_path = shutil.which("sqlcmd")
+    sqlcmd_args = [
         "-S",
-        sql_server_target(MSSQL_HOST, MSSQL_PORT),
+        sql_server_target(MSSQL_HOST, MSSQL_PORT) if sqlcmd_path else "localhost",
         "-U",
         MSSQL_USER,
-        "-P",
-        MSSQL_PASS,
         "-b",
         "-I",
         "-d",
@@ -208,11 +215,45 @@ def run_mssql_query(sql):
         "-1",
     ]
     if MSSQL_ENCRYPT:
-        command.append("-N")
+        sqlcmd_args.append("-N")
     if MSSQL_TRUST_CERT:
-        command.append("-C")
-    command.extend(["-Q", f"SET NOCOUNT ON; {sql}"])
-    completed = subprocess.run(command, capture_output=True, text=True, check=True)
+        sqlcmd_args.append("-C")
+    sqlcmd_args.extend(["-Q", f"SET NOCOUNT ON; {sql}"])
+    if sqlcmd_path is None:
+        if MSSQL_HOST not in ("127.0.0.1", "localhost", "::1") or str(MSSQL_PORT) != "1433":
+            raise RuntimeError(
+                "sqlcmd is required for a remote or non-default endpoint. "
+                "Docker fallback is limited to the local agora-mssql container on port 1433."
+            )
+        inspect = subprocess.run(
+            ["docker", "inspect", "--format", "{{.State.Running}}", "agora-mssql"],
+            capture_output=True,
+            text=True,
+        )
+        if inspect.returncode != 0 or inspect.stdout.strip() != "true":
+            raise RuntimeError(
+                "sqlcmd is required on PATH unless the local agora-mssql container is running."
+            )
+        # The configured container already has MSSQL_PASSWORD in its environment.
+        # Use SQLCMDPASSWORD there instead of exposing the password in argv.
+        command = [
+            "docker", "exec", "agora-mssql", "/bin/bash", "-lc",
+            'export SQLCMDPASSWORD="${MSSQL_PASSWORD:?}"; exec /opt/mssql-tools18/bin/sqlcmd "$@"',
+            "sqlcmd", *sqlcmd_args,
+        ]
+        environment = None
+    else:
+        command = [sqlcmd_path, *sqlcmd_args]
+        environment = os.environ.copy()
+        environment["SQLCMDPASSWORD"] = MSSQL_PASS
+    completed = subprocess.run(command, capture_output=True, text=True, env=environment)
+    if completed.returncode:
+        raise subprocess.CalledProcessError(
+            completed.returncode,
+            "sqlcmd",
+            output=completed.stdout,
+            stderr=completed.stderr,
+        )
     return completed.stdout.strip()
 
 
@@ -363,7 +404,7 @@ def test_mssql():
         )
         record_test("C++ 서버 데이터 수정 [Update]", cpp_port == str(port + 5), cpp_port)
     except Exception as error:
-        record_test("MS SQL 연결 또는 CRUD 점검 실패", False, str(error))
+        record_test("MS SQL 연결 또는 CRUD 점검 실패", False, safe_error(error))
     finally:
         if mutations_started:
             cleanup_sql = (
@@ -384,7 +425,7 @@ def test_mssql():
                 run_mssql_query(cleanup_sql)
                 record_test("임시 SQL 테스트 데이터 정리", True)
             except Exception as error:
-                record_test("임시 SQL 테스트 데이터 정리", False, str(error))
+                record_test("임시 SQL 테스트 데이터 정리", False, safe_error(error))
 
 
 def es_request(path, method="GET", payload=None):
@@ -454,7 +495,7 @@ def test_elasticsearch():
         )
         record_test("Elasticsearch 문서 수정 [Update]", updated.get("result") == "updated")
     except Exception as error:
-        record_test("Elasticsearch 연결 또는 CRUD 점검 실패", False, str(error))
+        record_test("Elasticsearch 연결 또는 CRUD 점검 실패", False, safe_error(error))
     finally:
         if doc_created:
             try:
@@ -465,7 +506,7 @@ def test_elasticsearch():
                     deleted.get("result", ""),
                 )
             except Exception as error:
-                record_test("임시 Elasticsearch 문서 정리", False, str(error))
+                record_test("임시 Elasticsearch 문서 정리", False, safe_error(error))
 
 
 def parse_sentinel_addresses(value):
@@ -573,14 +614,11 @@ def test_redis():
                 command_prefix = [
                     "docker",
                     "exec",
-                    "-e",
-                    f"REDISCLI_AUTH={REDIS_PASS}",
                     "agora-redis-stack",
+                    "/bin/sh",
+                    "-c",
+                    'REDISCLI_AUTH="$REDIS_USER_PASSWORD" exec redis-cli --user "$REDIS_USER" --no-auth-warning --raw "$@"',
                     "redis-cli",
-                    "--user",
-                    REDIS_USER,
-                    "--no-auth-warning",
-                    "--raw",
                 ]
                 env = os.environ.copy()
 
@@ -646,7 +684,7 @@ def test_redis():
             denied = "noperm" in message.lower() or "permission" in message.lower()
             record_test("타 네임스페이스 키 접근 차단", denied, message)
     except Exception as error:
-        record_test("Redis 연결 또는 CRUD 점검 실패", False, str(error))
+        record_test("Redis 연결 또는 CRUD 점검 실패", False, safe_error(error))
     finally:
         if key_created:
             try:

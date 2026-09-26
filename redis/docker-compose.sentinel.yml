@@ -7,28 +7,18 @@ services:
     restart: unless-stopped
     env_file:
       - .env
-    command:
-      - redis-server
-      - --port
-      - "6379"
-      - --requirepass
-      - ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
-      - --masterauth
-      - ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
-      - --appendonly
-      - "yes"
-      - --protected-mode
-      - "yes"
-      - --aclfile
-      - /data/users.acl
+    environment:
+      REDIS_NODE_APPENDONLY: "${REDIS_NODE_APPENDONLY:-yes}"
+    entrypoint: ["/bin/sh", "/usr/local/bin/redis-node-entrypoint.sh"]
     ports:
       - "${REDIS_BIND_IP:-127.0.0.1}:${REDIS_EXTERNAL_PORT:-${REDIS_PORT:-6379}}:6379"
     volumes:
+      - ./redis-node-entrypoint.sh:/usr/local/bin/redis-node-entrypoint.sh:ro
       - redis_primary_data:/data
     networks:
       - redis-ha
     healthcheck:
-      test: ["CMD-SHELL", "REDISCLI_AUTH='$${REDIS_PASSWORD}' redis-cli ping | grep -q PONG"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$${REDIS_PASSWORD}\" redis-cli ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -40,24 +30,12 @@ services:
     restart: unless-stopped
     env_file:
       - .env
-    command:
-      - redis-server
-      - --port
-      - "6379"
-      - --requirepass
-      - ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
-      - --masterauth
-      - ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
-      - --replicaof
-      - redis-primary
-      - "6379"
-      - --appendonly
-      - "yes"
-      - --protected-mode
-      - "yes"
-      - --aclfile
-      - /data/users.acl
+    entrypoint: ["/bin/sh", "/usr/local/bin/redis-node-entrypoint.sh"]
+    environment:
+      REDIS_NODE_PRIMARY_HOST: redis-primary
+      REDIS_NODE_PRIMARY_PORT: 6379
     volumes:
+      - ./redis-node-entrypoint.sh:/usr/local/bin/redis-node-entrypoint.sh:ro
       - redis_replica_1_data:/data
     networks:
       - redis-ha
@@ -65,7 +43,7 @@ services:
       redis-primary:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "REDISCLI_AUTH='$${REDIS_PASSWORD}' redis-cli ping | grep -q PONG"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$${REDIS_PASSWORD}\" redis-cli ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -77,24 +55,12 @@ services:
     restart: unless-stopped
     env_file:
       - .env
-    command:
-      - redis-server
-      - --port
-      - "6379"
-      - --requirepass
-      - ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
-      - --masterauth
-      - ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
-      - --replicaof
-      - redis-primary
-      - "6379"
-      - --appendonly
-      - "yes"
-      - --protected-mode
-      - "yes"
-      - --aclfile
-      - /data/users.acl
+    entrypoint: ["/bin/sh", "/usr/local/bin/redis-node-entrypoint.sh"]
+    environment:
+      REDIS_NODE_PRIMARY_HOST: redis-primary
+      REDIS_NODE_PRIMARY_PORT: 6379
     volumes:
+      - ./redis-node-entrypoint.sh:/usr/local/bin/redis-node-entrypoint.sh:ro
       - redis_replica_2_data:/data
     networks:
       - redis-ha
@@ -102,7 +68,7 @@ services:
       redis-primary:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "REDISCLI_AUTH='$${REDIS_PASSWORD}' redis-cli ping | grep -q PONG"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$${REDIS_PASSWORD}\" redis-cli ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 10

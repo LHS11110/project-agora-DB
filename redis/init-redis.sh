@@ -42,27 +42,41 @@ if command -v redis-cli &> /dev/null; then
     REDISCLI_AUTH="$REDIS_ADMIN_PASS" redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" "$@"
   }
   run_user_cli() {
-    redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" --user "$REDIS_USER" -a "$REDIS_USER_PASS" --no-auth-warning "$@"
+    REDISCLI_AUTH="$REDIS_USER_PASS" redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" --user "$REDIS_USER" --no-auth-warning "$@"
+  }
+  provision_app_acl() {
+    printf '>%s' "$REDIS_USER_PASS" | REDISCLI_AUTH="$REDIS_ADMIN_PASS" redis-cli -x \
+      -h "$REDIS_HOST" -p "$REDIS_PORT" ACL SETUSER "$REDIS_USER" reset on \
+      "~${REDIS_KEY_PREFIX}*" "~${REDIS_INDEX_NAME}*" resetchannels -@all \
+      +auth +ping +role +json.get +json.set +json.arrlen +json.arrappend +json.del \
+      +get +del +exists +keys +eval +ft.search +ft.info
   }
 else
   run_admin_cli() {
     if [ "$(docker inspect -f '{{.State.Running}}' agora-redis-primary 2>/dev/null || true)" = "true" ]; then
-      docker exec -e REDISCLI_AUTH="$REDIS_ADMIN_PASS" agora-redis-primary redis-cli "$@"
+      "$SCRIPT_DIR/redis-container-cli.sh" agora-redis-primary admin "$@"
     elif [ "$(docker inspect -f '{{.State.Running}}' agora-redis-node 2>/dev/null || true)" = "true" ]; then
-      docker exec -e REDISCLI_AUTH="$REDIS_ADMIN_PASS" agora-redis-node \
-        redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" "$@"
+      "$SCRIPT_DIR/redis-container-cli.sh" agora-redis-node admin "$@"
     else
-    docker exec -e REDISCLI_AUTH="$REDIS_ADMIN_PASS" agora-redis-stack redis-cli "$@"
+      "$SCRIPT_DIR/redis-container-cli.sh" agora-redis-stack admin "$@"
     fi
   }
   run_user_cli() {
     if [ "$(docker inspect -f '{{.State.Running}}' agora-redis-primary 2>/dev/null || true)" = "true" ]; then
-      docker exec agora-redis-primary redis-cli --user "$REDIS_USER" -a "$REDIS_USER_PASS" --no-auth-warning "$@"
+      "$SCRIPT_DIR/redis-container-cli.sh" agora-redis-primary app "$@"
     elif [ "$(docker inspect -f '{{.State.Running}}' agora-redis-node 2>/dev/null || true)" = "true" ]; then
-      docker exec agora-redis-node redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" \
-        --user "$REDIS_USER" -a "$REDIS_USER_PASS" --no-auth-warning "$@"
+      "$SCRIPT_DIR/redis-container-cli.sh" agora-redis-node app "$@"
     else
-      docker exec agora-redis-stack redis-cli --user "$REDIS_USER" -a "$REDIS_USER_PASS" --no-auth-warning "$@"
+      "$SCRIPT_DIR/redis-container-cli.sh" agora-redis-stack app "$@"
+    fi
+  }
+  provision_app_acl() {
+    if [ "$(docker inspect -f '{{.State.Running}}' agora-redis-primary 2>/dev/null || true)" = "true" ]; then
+      "$SCRIPT_DIR/redis-container-cli.sh" agora-redis-primary provision-app
+    elif [ "$(docker inspect -f '{{.State.Running}}' agora-redis-node 2>/dev/null || true)" = "true" ]; then
+      "$SCRIPT_DIR/redis-container-cli.sh" agora-redis-node provision-app
+    else
+      "$SCRIPT_DIR/redis-container-cli.sh" agora-redis-stack provision-app
     fi
   }
 fi
@@ -70,10 +84,8 @@ fi
 echo "=== 1. Redis ACL 사용자 ($REDIS_USER) 생성 및 권한 부여 ==="
 # Keep commands used by the BE and failover/inspection checks, limited to the
 # application's key namespace and RediSearch index.
-run_admin_cli ACL SETUSER "$REDIS_USER" reset on ">$REDIS_USER_PASS" \
-  "~${REDIS_KEY_PREFIX}*" "~${REDIS_INDEX_NAME}*" resetchannels -@all \
-  +auth +ping +role +json.get +json.set +json.arrlen +json.arrappend +json.del \
-  +get +del +exists +keys +eval +ft.search +ft.info
+provision_app_acl
+run_admin_cli ACL SAVE
 echo "[OK] 사용자($REDIS_USER) ACL 생성 완료 (제한된 명령 및 키 네임스페이스 적용)"
 
 echo -e "\n=== 2. Redis Stack RediSearch 인덱스 ($REDIS_INDEX_NAME) 생성 ==="

@@ -19,7 +19,9 @@ if [ -n "${REDIS_SENTINEL_USER:-}" ] || [ -n "${REDIS_SENTINEL_PASSWORD:-}" ]; t
   esac
   SENTINEL_PASSWORD_HASH=$(printf '%s' "$REDIS_SENTINEL_PASSWORD" | sha256sum | awk '{print $1}')
   SENTINEL_ACL="user default off
-user $REDIS_SENTINEL_USER on #$SENTINEL_PASSWORD_HASH -@all +auth +ping +sentinel|get-master-addr-by-name"
+user $REDIS_SENTINEL_USER on #$SENTINEL_PASSWORD_HASH -@all +auth +ping \
++sentinel|get-master-addr-by-name +sentinel|masters +sentinel|master \
++sentinel|replicas +sentinel|sentinels +sentinel|myid"
 fi
 cat > "$ACL_FILE" <<EOF
 $SENTINEL_ACL
@@ -35,7 +37,7 @@ protected-mode yes
 dir /data
 aclfile $ACL_FILE
 sentinel resolve-hostnames yes
-sentinel announce-hostnames yes
+sentinel announce-hostnames no
 sentinel monitor agora-master $MASTER_HOST 6379 2
 sentinel auth-pass agora-master "$ESCAPED_PASSWORD"
 sentinel sentinel-user sentinel-internal
@@ -48,6 +50,25 @@ EOF
     printf 'sentinel announce-ip %s\n' "$REDIS_SENTINEL_ANNOUNCE_IP" >> "$CONFIG_FILE"
   fi
 fi
+
+# Sentinel rewrites discovered replica addresses into sentinel.conf. Older
+# configurations may contain Docker hostnames while announce-hostnames is
+# disabled. Redis then resolves that hostname to an IP and can reject the
+# persisted hostname/IP pair as a duplicate endpoint on restart. Clients and
+# peers need the routable numeric address, so retain numeric replica records
+# and let Sentinel rediscover hostname records from the monitored primary.
+CONFIG_TEMP="${CONFIG_FILE}.tmp"
+awk '
+  $1 == "sentinel" && $2 == "known-replica" {
+    host = $4
+    numeric_address = host ~ /^[0-9][0-9.]*$/ \
+      || (host ~ /^[[:xdigit:]:]+$/ && host ~ /:/)
+    key = $3 " " host " " $5
+    if (!numeric_address || seen[key]++) next
+  }
+  { print }
+' "$CONFIG_FILE" > "$CONFIG_TEMP"
+mv "$CONFIG_TEMP" "$CONFIG_FILE"
 
 if [ -n "${REDIS_SENTINEL_ANNOUNCE_IP:-}" ]; then
   if grep -q '^sentinel announce-ip ' "$CONFIG_FILE"; then
@@ -84,6 +105,7 @@ set_config_line() {
   mv "$CONFIG_TEMP" "$CONFIG_FILE"
 }
 set_config_line 'aclfile ' "aclfile $ACL_FILE"
+set_config_line 'sentinel announce-hostnames ' 'sentinel announce-hostnames no'
 set_config_line 'sentinel auth-pass agora-master ' "sentinel auth-pass agora-master \"$ESCAPED_PASSWORD\""
 set_config_line 'sentinel sentinel-user ' 'sentinel sentinel-user sentinel-internal'
 set_config_line 'sentinel sentinel-pass ' "sentinel sentinel-pass \"$ESCAPED_PASSWORD\""
@@ -94,4 +116,5 @@ else
 fi
 chmod 600 "$CONFIG_FILE"
 
-exec redis-server "$CONFIG_FILE" --sentinel
+chown redis:redis "$ACL_FILE" "$CONFIG_FILE"
+exec /usr/local/bin/docker-entrypoint.sh redis-server "$CONFIG_FILE" --sentinel

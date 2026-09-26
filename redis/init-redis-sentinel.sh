@@ -22,7 +22,7 @@ REDIS_INDEX_NAME="${REDIS_INDEX_NAME:-idx:canvas}"
 for container in agora-redis-primary agora-redis-replica-1 agora-redis-replica-2; do
   ready=false
   for attempt in {1..90}; do
-    if docker exec -e REDISCLI_AUTH="$REDIS_PASSWORD" "$container" redis-cli ping 2>/dev/null | grep -q PONG; then
+    if "$SCRIPT_DIR/redis-container-cli.sh" "$container" admin ping 2>/dev/null | grep -q PONG; then
       ready=true
       break
     fi
@@ -34,12 +34,8 @@ for container in agora-redis-primary agora-redis-replica-1 agora-redis-replica-2
   fi
 
   echo "Configuring ACL on $container"
-  docker exec -e REDISCLI_AUTH="$REDIS_PASSWORD" "$container" redis-cli \
-    ACL SETUSER "$REDIS_USER" reset on ">$REDIS_USER_PASSWORD" \
-    "~${REDIS_KEY_PREFIX}*" "~${REDIS_INDEX_NAME}*" resetchannels -@all \
-    +auth +ping +role +json.get +json.set +json.arrlen +json.arrappend +json.del \
-    +get +del +exists +keys +eval +ft.search +ft.info
-  docker exec -e REDISCLI_AUTH="$REDIS_PASSWORD" "$container" redis-cli ACL SAVE
+  "$SCRIPT_DIR/redis-container-cli.sh" "$container" provision-app
+  "$SCRIPT_DIR/redis-container-cli.sh" "$container" admin ACL SAVE
 done
 
 # Creates the JSON search index on the initial primary and registers the

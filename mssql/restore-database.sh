@@ -28,7 +28,8 @@ CONTAINER_PATH="/var/opt/mssql/backup/restore-${DATABASE}.bak"
 docker exec -u 0 "$CONTAINER" mkdir -p /var/opt/mssql/backup
 docker cp "$BACKUP_FILE" "$CONTAINER:$CONTAINER_PATH"
 docker exec -u 0 "$CONTAINER" chown mssql:mssql "$CONTAINER_PATH"
-docker exec "$CONTAINER" /opt/mssql-tools18/bin/sqlcmd \
-  -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C -b -I \
+docker exec "$CONTAINER" /bin/bash -lc \
+  'export SQLCMDPASSWORD="$MSSQL_SA_PASSWORD"; exec /opt/mssql-tools18/bin/sqlcmd "$@"' \
+  sqlcmd -S localhost -U sa -C -b -I \
   -Q "RESTORE VERIFYONLY FROM DISK = N'$CONTAINER_PATH' WITH CHECKSUM; IF DB_ID(N'$DATABASE') IS NOT NULL THROW 51002, 'Target database already exists; restore script will not overwrite it', 1; RESTORE DATABASE [$DATABASE] FROM DISK = N'$CONTAINER_PATH' WITH CHECKSUM, RECOVERY;"
 echo "SQL restore completed to container $CONTAINER. Run mssql/init-mssql.sh against this target to recreate the runtime login, then verify BE access."

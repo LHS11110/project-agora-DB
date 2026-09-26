@@ -8,7 +8,7 @@ Project Agora의 저장소 인프라입니다. 기본 Docker Compose 구성은 �
 
 | 저장소 | 역할 | 컨테이너 | 기본 로컬 포트 |
 | --- | --- | --- | --- |
-| MS SQL Server 2022 CU26 | 사용자, 세션, 캔버스 배정, C++·Redis 서버 메타데이터 | `agora-mssql` | `1433` |
+| MS SQL Server 2022 CU27 | 사용자, 세션, 캔버스 배정, C++·Redis 서버 메타데이터 | `agora-mssql` | `1433` |
 | Redis 8.6.7 | 활성 캔버스 RedisJSON, RediSearch | `agora-redis-stack` | `6379` |
 | Redis Insight 3.8.0 | Redis 관리 UI | `agora-redis-insight` | `8001` |
 | Elasticsearch 8.19.22 | 캔버스 문서, 백엔드 애플리케이션 로그 | `agora-elasticsearch` | `9200` |
@@ -30,16 +30,16 @@ flowchart LR
 
 ### 1. 환경 파일 준비
 
-각 서비스는 독립 환경 파일을 사용합니다. 예시 파일을 복사한 뒤 모든 placeholder 값을 충분히 긴 난수로 교체합니다. Redis와 Elasticsearch 비밀번호는 `openssl rand -hex 32`로 만들 수 있습니다. SQL Server `MSSQL_SA_PASSWORD`는 최소 8자이며 대문자·소문자·숫자·기호 중 세 종류가 필요합니다. 예를 들어 `printf 'A9!%s\n' "$(openssl rand -hex 32)"`로 생성하면 이 정책을 충족합니다.
+각 서비스는 독립 환경 파일을 사용합니다. 아래 자동 준비 명령이 템플릿을 복사하고 placeholder 비밀번호를 서비스마다 다른 난수로 바꿉니다. 비밀번호는 shell 기반 관리 도구와 호환되도록 영문자·숫자 위주로 생성합니다.
 
 ```bash
 cd /path/to/project-agora-DB
-cp mssql/.env.example mssql/.env
-cp redis/.env.example redis/.env
-cp elasticsearch/.env.example elasticsearch/.env
-chmod 600 mssql/.env redis/.env elasticsearch/.env
-./elasticsearch/prepare-storage.sh
+python3 ops/configure-db.py prepare
+python3 ops/configure-db.py validate --profile development
+python3 ops/configure-db.py prepare-storage
 ```
+
+운영 적용 명령과 백업 예약 설정은 [DB 운영 자동화 안내](ops/README.md)를 참고하세요. `prepare`는 인증서를 발급하거나 운영 주소를 추측하지 않습니다. 운영용 TLS 인증서·사설 IP·외부 백업 마운트를 준비한 뒤 `validate --profile production`을 통과시켜야 합니다.
 
 | 파일 | 필수 비밀값 |
 | --- | --- |
@@ -77,7 +77,7 @@ docker compose ps
 ./elasticsearch/init-elasticsearch.sh
 ```
 
-초기화 스크립트는 `MSSQL_USER`를 `agora_runtime` DML 역할에 넣고 DB 소유자는 `sa`로 둡니다. 서버 스키마 변경은 관리자 연결로만 수행합니다. Sentinel HA를 쓸 때는 Redis `.env`의 `REDIS_SENTINEL_USER`/`REDIS_SENTINEL_PASSWORD`와 BE 환경변수 값을 일치시킵니다. 이 ACL 계정에는 primary 주소 조회만 허용합니다.
+초기화 스크립트는 `MSSQL_USER`를 `agora_runtime` DML 역할에 넣고 DB 소유자는 `sa`로 둡니다. 서버 스키마 변경은 관리자 연결로만 수행합니다. Sentinel HA를 쓸 때는 Redis `.env`의 `REDIS_SENTINEL_USER`/`REDIS_SENTINEL_PASSWORD`와 BE 환경변수 값을 일치시킵니다. 이 ACL 계정에는 클라이언트의 primary 탐색에 필요한 읽기 전용 Sentinel 조회만 허용하고 failover 변경 명령은 허용하지 않습니다.
 
 기존 `ES_LOG_INDEX`가 구체적인 Elasticsearch 인덱스라면 쓰기 alias로 바로 바꾸지 않습니다. BE/C++ 로그 기록을 중지하고 먼저 스냅샷을 만든 다음 아래 마이그레이션을 실행합니다. 스크립트는 문서 수를 확인하고 alias 전환을 원자적으로 수행합니다.
 
@@ -103,18 +103,11 @@ ES_ALLOW_LOG_INDEX_MIGRATION=true ./elasticsearch/migrate-log-index-to-ilm.sh
 
 기존 `FT.SEARCH`/RedisJSON 기능을 유지하기 위해 OSS Redis Cluster 샤딩 대신 Sentinel 기반 primary/replica failover를 제공합니다. Redis OSS Cluster API는 현재 RediSearch 검색 기능과 호환되지 않습니다. Sentinel은 데이터를 샤딩하지 않으며, 기존 Redis 명령과 단일 키 구조를 유지합니다.
 
-기존 단일 Redis 데이터는 새 Compose 볼륨에 자동 복사되지 않으므로, [Redis HA 마이그레이션 안내](redis/cluster/README.md)에 따라 snapshot을 옮긴 뒤 전환합니다. 개발/검증용으로 한 호스트에 노드가 함께 올라오므로, 이 구성만으로 호스트 장애까지 보호하지는 않습니다.
+기존 단일 Redis 데이터는 새 Compose 볼륨에 자동 복사되지 않으므로, [Redis HA 마이그레이션 안내](redis/cluster/README.md)에 따라 RDB를 새 볼륨에 안전하게 가져온 뒤 전환합니다. AOF를 켜기 전에 RDB를 읽도록 1회 기동하고 데이터 확인 후 기본 AOF 설정으로 재기동해야 합니다. 개발/검증용으로 한 호스트에 노드가 함께 올라오므로, 이 구성만으로 호스트 장애까지 보호하지는 않습니다.
 
 실제 호스트 장애 대응은 [Redis 다중 호스트 배포 절차](redis/cluster/README.md)의 `docker-compose.ha-node.yml`을 각 Redis 호스트에서 실행합니다. `docker-compose.sentinel.yml`은 단일 호스트 failover 검증용입니다.
 
-```bash
-./redis/snapshot-standalone.sh
-docker compose stop redis-stack
-docker compose --env-file redis/.env -f redis/docker-compose.sentinel.yml create redis-primary
-docker cp /tmp/agora-redis-dump.rdb agora-redis-primary:/data/dump.rdb
-docker compose --env-file redis/.env -f redis/docker-compose.sentinel.yml up -d
-./redis/init-redis-sentinel.sh
-```
+단일 Redis에서 HA로 옮길 때는 새 볼륨을 대상으로 하는 [데이터 이관 단계](redis/cluster/README.md#move-the-current-single-node-data)를 사용하세요. 중지된 컨테이너에 `docker cp`만 실행하면 Docker 볼륨에 데이터가 들어가지 않아 기존 DB가 빈 상태로 기동될 수 있습니다.
 
 이 구성은 Redis 노드 3개와 Sentinel 3개를 사용합니다. `redis_server` 행은 기존 스키마 호환을 위해 초기 endpoint와 논리 서비스 ID를 등록하지만, `REDIS_SENTINELS`가 설정된 BE/C++은 이 행의 IP·포트로 접속하지 않고 Sentinel에서 현재 primary를 조회합니다. C++은 연결을 다시 열 때마다 primary를 재탐색하고, Spring은 캔버스 Redis 문서를 읽을 때 primary를 재탐색합니다. 두 클라이언트 모두 후보 노드의 `ROLE`이 `master`인지 확인합니다. 따라서 failover 뒤 `redis_server` 행을 수동 갱신할 필요가 없습니다. Sentinel 인증이 활성화된 운영 환경에서는 `REDIS_SENTINEL_USER`/`REDIS_SENTINEL_PASSWORD`를 Redis와 BE에 설정하고 일치시켜야 합니다. Sentinel 포트(26379–26381)는 신뢰할 수 있는 사설망에서만 열어야 합니다. 운영에서 호스트 장애도 견디려면 Redis 노드와 Sentinel을 서로 다른 호스트에 분산하고, 각 노드가 서로 및 클라이언트에서 접근 가능한 주소를 광고하도록 배포해야 합니다. Redis 저장소 조회·정리 도구는 HA 노드 중 현재 primary를 찾아 실행합니다.
 
@@ -165,8 +158,9 @@ sudo pcs status --full
 | `MSSQL_DB` | 데이터베이스 이름, 기본 `agora_db` |
 | `MSSQL_USER`, `MSSQL_PASSWORD` | BE·C++가 사용하는 DML 전용 런타임 계정 (`agora_runtime` 역할) |
 | `DB_TRUST_SERVER_CERTIFICATE` | 개발용 자체 서명 인증서 예외. 운영에서는 `false` |
-| `MSSQL_TLS_ENABLED`, `MSSQL_TLS_CERTS_DIR` | SQL Server TLS 인증서 설정. 운영에서는 `true` |
+| `MSSQL_TLS_ENABLED`, `MSSQL_TLS_CERTS_DIR` | SQL Server TLS 인증서 설정. 운영에서는 `true`; AG 노드 Compose는 호스트별 절대 `MSSQL_NODE_TLS_CERTS_DIR`를 사용 |
 | `MSSQL_PORT`, `MSSQL_EXTERNAL_IP`, `MSSQL_EXTERNAL_PORT` | 내부 포트와 호스트 포트 바인딩 |
+| `MSSQL_MANAGEMENT_HOST`, `MSSQL_MANAGEMENT_PORT` | 호스트 관리·초기화 도구의 연결 대상. 운영 AG에서는 listener 주소 사용 |
 | `MSSQL_TABLE_USERS`, `MSSQL_TABLE_REDIS_SERVER` | 사용자·Redis 서버 테이블 이름 |
 | `MSSQL_TABLE_CANVAS_INFO`, `MSSQL_TABLE_CPP_SERVER` | 캔버스·C++ 서버 테이블 이름 |
 
@@ -352,6 +346,7 @@ BE와 C++ 실시간 서버는 아래 SQL listener 및 Redis Sentinel 설정을 �
 mssql/          SQL Server Compose, 스키마, 초기화·검색·정리 스크립트
 redis/          Redis Stack Compose, ACL·RedisJSON·RediSearch 초기화 스크립트
 elasticsearch/  Elasticsearch Compose, 사용자·인덱스 초기화 스크립트
+ops/            환경 준비·검증·배포 및 통합 백업 예약 자동화
 tests/          저장소 통합 테스트
 *.sh            통합 검색 및 정리 도구
 ```

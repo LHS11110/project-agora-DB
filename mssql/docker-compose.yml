@@ -1,6 +1,6 @@
 services:
   mssql:
-    image: mcr.microsoft.com/mssql/server:2022-CU26-ubuntu-22.04
+    image: mcr.microsoft.com/mssql/server:2022-CU27-ubuntu-22.04
     container_name: agora-mssql
     restart: unless-stopped
     env_file:
@@ -39,14 +39,14 @@ services:
         max-size: "20m"
         max-file: "3"
     healthcheck:
-      test: [ "CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$${MSSQL_SA_PASSWORD}\" -C -Q \"SELECT 1\" || exit 1" ]
+      test: [ "CMD-SHELL", "SQLCMDPASSWORD=\"$${MSSQL_SA_PASSWORD}\" /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -Q \"SELECT 1\" || exit 1" ]
       interval: 20s
       timeout: 10s
       retries: 5
       start_period: 30s
 
   mssql-init:
-    image: mcr.microsoft.com/mssql/server:2022-CU26-ubuntu-22.04
+    image: mcr.microsoft.com/mssql/server:2022-CU27-ubuntu-22.04
     container_name: agora-mssql-init
     restart: "no"
     env_file:
@@ -72,7 +72,7 @@ services:
     command:
       - >-
         if [ "$${DB_TRUST_SERVER_CERTIFICATE:-false}" = "true" ]; then SQLCMD_TRUST=(-C); else SQLCMD_TRUST=(); fi;
-        /opt/mssql-tools18/bin/sqlcmd -S mssql -U sa -P "$$MSSQL_SA_PASSWORD" "$${SQLCMD_TRUST[@]}" -I
+        SQLCMDPASSWORD="$$MSSQL_SA_PASSWORD" /opt/mssql-tools18/bin/sqlcmd -S mssql -U sa "$${SQLCMD_TRUST[@]}" -b -I
         -v DB_NAME="$$MSSQL_DB" DB_USER="$$MSSQL_USER" DB_PASSWORD="$$MSSQL_PASSWORD"
         TABLE_USERS="$$MSSQL_TABLE_USERS" TABLE_REDIS_SERVER="$$MSSQL_TABLE_REDIS_SERVER"
         TABLE_CANVAS_INFO="$$MSSQL_TABLE_CANVAS_INFO" TABLE_CANVAS_CACHE="$$MSSQL_TABLE_CANVAS_INFO"

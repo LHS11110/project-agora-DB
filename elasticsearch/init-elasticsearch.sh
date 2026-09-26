@@ -7,6 +7,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/curl-auth.sh"
 
 # .env 파일이 있으면 로드
 if [ -f "$SCRIPT_DIR/.env" ]; then
@@ -30,7 +31,16 @@ fi
 ES_HOST="${ES_SCHEME}://${ES_CONNECT_IP}:${ES_PORT}"
 ES_CURL_ARGS=()
 if [ -n "${ES_CA_CERT:-}" ]; then ES_CURL_ARGS+=(--cacert "$ES_CA_CERT"); fi
-curl_es() { curl "${ES_CURL_ARGS[@]}" "$@"; }
+curl_es() {
+  local credentials
+  if [ "${1:-}" = "-u" ]; then
+    credentials="${2:?Elasticsearch credentials are required}"
+    shift 2
+  else
+    credentials="$ES_SUPER_USER:$ES_SUPER_PASS"
+  fi
+  es_curl_authenticated "${credentials%%:*}" "${credentials#*:}" "${ES_CURL_ARGS[@]}" "$@"
+}
 ES_SUPER_USER="elastic"
 : "${ELASTIC_PASSWORD:?ELASTIC_PASSWORD must be set in elasticsearch/.env}"
 ES_SUPER_PASS="$ELASTIC_PASSWORD"
