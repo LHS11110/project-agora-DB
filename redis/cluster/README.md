@@ -107,16 +107,23 @@ IP/port for data connections. Failover does not require changing the row.
 Allow Redis port 6379 between nodes and clients, and Sentinel port 26379
 between nodes and Sentinel clients. Restrict both ports to trusted private
 networks. This file uses host networking so Sentinel can advertise those node
-addresses without Docker port translation. Redis TLS is not enabled in these
-Compose files; use a trusted private network or add TLS together with matching
-client configuration before production deployment.
+addresses without Docker port translation. Set `REDIS_TLS_ENABLED=true` and
+provide each host's `server.crt`, `server.key`, and trusted `ca.crt` through
+`REDIS_TLS_CERTS_DIR`. Redis, replication links, Sentinel peer links, and BE
+clients then use TLS, with the plaintext listener disabled. Certificates must
+cover each advertised Redis and Sentinel address in their SANs, and BE/C++
+must trust the issuing CA. Confirm private routing and firewall rules from
+every app/replica host before deployment; a private IP by itself does not prove
+that packets avoid untrusted network paths.
 
 ## Local failover lab and data safety
 
 `redis/docker-compose.sentinel.yml` runs all six Redis/Sentinel containers on
-one host for development and failover exercises. It does not protect against
-that host failing. Redis uses asynchronous replication, so failover can lose
-the most recent writes if they had not reached a replica yet.
+one host in an `internal: true` Docker network for development and failover
+exercises. Redis ports are TLS-only; host applications on this machine use
+the fixed Docker bridge addresses in `REDIS_SENTINELS`. This setup does not
+protect against that host failing. Redis uses asynchronous replication, so
+failover can lose the most recent writes if they had not reached a replica yet.
 
 The repository's maintenance CLI scripts locate the current primary by
 checking the local Redis/Sentinel containers. The existing `redis_server`

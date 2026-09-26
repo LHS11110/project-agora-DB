@@ -9,7 +9,7 @@ MASTER_HOST="${REDIS_SENTINEL_MASTER_HOST:-redis-primary}"
 SENTINEL_BIND_IP="${REDIS_SENTINEL_BIND_IP:-0.0.0.0}"
 SENTINEL_PORT="${REDIS_SENTINEL_PORT:-26379}"
 NODE_PORT="${REDIS_NODE_PORT:-6379}"
-TLS_ENABLED="${REDIS_TLS_ENABLED:-false}"
+TLS_ENABLED="${REDIS_TLS_ENABLED:-true}"
 TLS_CERTIFICATE="${REDIS_TLS_CERTIFICATE:-/run/secrets/redis-tls/server.crt}"
 TLS_KEY="${REDIS_TLS_KEY:-/run/secrets/redis-tls/server.key}"
 TLS_CA_CERT="${REDIS_TLS_CA_CERT:-/run/secrets/redis-tls/ca.crt}"
@@ -46,7 +46,7 @@ if [ "$TLS_ENABLED" = true ]; then
   cp "$TLS_KEY" "$TLS_RUNTIME_DIR/server.key"
   cp "$TLS_CA_CERT" "$TLS_RUNTIME_DIR/ca.crt"
   chown -R redis:redis "$TLS_RUNTIME_DIR"
-  chmod 0700 "$TLS_RUNTIME_DIR/server.key"
+  chmod 0600 "$TLS_RUNTIME_DIR/server.key"
   chmod 0644 "$TLS_RUNTIME_DIR/server.crt" "$TLS_RUNTIME_DIR/ca.crt"
   TLS_CERTIFICATE="$TLS_RUNTIME_DIR/server.crt"
   TLS_KEY="$TLS_RUNTIME_DIR/server.key"
@@ -68,7 +68,7 @@ tls-key-file $TLS_KEY
 tls-ca-cert-file $TLS_CA_CERT
 tls-auth-clients no
 tls-replication yes
-tls-protocols TLSv1.2 TLSv1.3
+tls-protocols "TLSv1.2 TLSv1.3"
 EOF
   else
     cat > "$CONFIG_FILE" <<EOF
@@ -161,7 +161,7 @@ if [ "$TLS_ENABLED" = true ]; then
   set_config_line 'tls-ca-cert-file ' "tls-ca-cert-file $TLS_CA_CERT"
   set_config_line 'tls-auth-clients ' 'tls-auth-clients no'
   set_config_line 'tls-replication ' 'tls-replication yes'
-  set_config_line 'tls-protocols ' 'tls-protocols TLSv1.2 TLSv1.3'
+  set_config_line 'tls-protocols ' 'tls-protocols "TLSv1.2 TLSv1.3"'
 else
   set_config_line 'port ' "port $SENTINEL_PORT"
   sed -i '/^tls-port /d; /^tls-cert-file /d; /^tls-key-file /d; /^tls-ca-cert-file /d; /^tls-auth-clients /d; /^tls-replication /d; /^tls-protocols /d' "$CONFIG_FILE"

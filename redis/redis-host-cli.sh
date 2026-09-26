@@ -14,7 +14,7 @@ shift
 command -v redis-cli >/dev/null 2>&1 || { echo "redis-cli is required on the host" >&2; exit 127; }
 
 TLS_ARGS=()
-if [ "${REDIS_TLS_ENABLED:-false}" = true ]; then
+if [ "${REDIS_TLS_ENABLED:-true}" = true ]; then
   REDIS_TLS_CA_CERT_HOST="${REDIS_TLS_CA_CERT_HOST:-${REDIS_TLS_CA_CERT:-}}"
   : "${REDIS_TLS_CA_CERT_HOST:?REDIS_TLS_CA_CERT_HOST must point to the host-readable Redis CA}"
   [ -r "$REDIS_TLS_CA_CERT_HOST" ] || { echo "Redis TLS CA is not readable" >&2; exit 1; }

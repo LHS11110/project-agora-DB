@@ -27,6 +27,7 @@ python3 ops/configure-db.py configure-production \
   --redis-sentinels 10.20.0.21:26379,10.20.0.22:26379,10.20.0.23:26379 \
   --sql-cert-dir /etc/project-agora/mssql-tls \
   --es-cert-dir /etc/project-agora/elasticsearch-tls \
+  --redis-cert-dir /etc/project-agora/redis-tls \
   --backup-root /mnt/agora-backups
 python3 ops/configure-db.py prepare-storage
 ```
@@ -37,7 +38,7 @@ SQL/Elasticsearch Compose 포트 바인딩에는 사설 IPv4 주소를 지정합
 
 - `mssql/.env`: `MSSQL_TLS_ENABLED=true`, `DB_TRUST_SERVER_CERTIFICATE=false`, 노드의 사설 `MSSQL_EXTERNAL_IP`, 관리용 `MSSQL_MANAGEMENT_HOST`/`MSSQL_MANAGEMENT_PORT`, CA가 서명한 `tls/server.crt`, `tls/server.key`, `tls/ca.crt`
 - `elasticsearch/.env`: `ES_HTTP_TLS_ENABLED=true`, `ES_SCHEME=https`, 사설 `ES_EXTERNAL_IP`, CA가 서명한 `certs/http.crt`, `certs/http.key`, `certs/ca.crt`; `ES_CA_CERT`는 DB 관리 도구가 읽을 절대 호스트 경로, `ES_SNAPSHOT_HOST_DIR`는 별도 내구성 저장소 경로
-- `redis/.env`: 세 서비스 비밀번호를 각각 설정하고 `REDIS_EXTERNAL_IP`를 초기 primary의 사설 주소로 지정
+- `redis/.env`: `REDIS_TLS_ENABLED=true`, 전용 `REDIS_SENTINEL_USER`/`REDIS_SENTINEL_PASSWORD`, TLS 서버 인증서·키·CA, `REDIS_TLS_CA_CERT_HOST`, 세 Sentinel seed를 설정하고 `REDIS_EXTERNAL_IP`를 초기 primary의 사설 주소로 지정
 
 `configure-production` 실행 후 listener/서비스 주소와 Sentinel seed 3개를 다시 검사할 수 있습니다.
 
@@ -49,7 +50,7 @@ python3 ops/configure-db.py validate --profile production \
   --backup-root /mnt/agora-backups
 ```
 
-이 검사는 비밀번호 강도·중복, 사설 주소, Compose 문법, SQL/Elasticsearch 인증서 체인·만료일·SAN, ES snapshot 디렉터리가 실제 백업 마운트 안에 있는지 확인합니다. DNS 이름은 검사하는 호스트에서 사설 IP로 해석되어야 합니다. 현재 Compose 템플릿은 서비스별 `.env`를 읽으므로 배포 호스트에서 안전하게 준비하고 `0600` 권한을 유지하세요. 외부 비밀 관리자를 쓰는 경우 이 파일을 안전하게 생성·주입하는 방법은 조직의 배포 도구에 연결해야 합니다.
+이 검사는 비밀번호 강도·중복, 사설 주소, Compose 문법, SQL/Elasticsearch/Redis 인증서 체인·만료일·SAN, ES snapshot 디렉터리가 실제 백업 마운트 안에 있는지 확인합니다. Redis와 Sentinel은 TLS를 사용하고 평문 listener를 비활성화해야 합니다. DNS 이름은 검사하는 호스트에서 사설 IP로 해석되어야 합니다. 이 설정 검사는 네트워크 경로나 방화벽을 대체하지 않으므로 배포 전 각 BE/복제 호스트에서 Sentinel과 Redis 주소로 가는 route와 ACL/firewall을 확인해 트래픽이 신뢰되지 않는 네트워크를 통과하지 않도록 하세요. 현재 Compose 템플릿은 서비스별 `.env`를 읽으므로 배포 호스트에서 안전하게 준비하고 `0600` 권한을 유지하세요. 외부 비밀 관리자를 쓰는 경우 이 파일을 안전하게 생성·주입하는 방법은 조직의 배포 도구에 연결해야 합니다.
 
 ## BE 설정 동기화
 
@@ -62,10 +63,13 @@ python3 ops/configure-db.py sync-backend \
   --db-freetds-conf /etc/freetds/freetds.conf \
   --es-host elasticsearch.internal --es-port 9200 \
   --es-ca-cert /run/secrets/elasticsearch/ca.crt \
+  --redis-ca-cert /run/secrets/redis/ca.crt \
   --redis-sentinels 10.20.0.21:26379,10.20.0.22:26379,10.20.0.23:26379
 ```
 
 동기화는 DB의 SQL·Redis·Elasticsearch 사용자 비밀번호도 BE `.env`에 기록하므로, 생성된 파일 권한은 `0600`입니다. `DB_FREETDS_CONF`는 C++이 사용할 FreeTDS 설정 파일 경로입니다. 해당 파일은 `encryption = strict`, CA 파일, `check certificate hostname = yes`를 설정해야 합니다. 호스트의 `sqlcmd`와 Spring JVM 기본 trust store에도 SQL 발급 CA가 있어야 합니다. BE 배포가 secret/config tree를 사용한다면 BE 환경변수 주입 규칙에 맞춰 동일한 값을 전달하세요.
+
+`--es-ca-cert`와 `--redis-ca-cert`는 설정 검사를 실행하는 DB 호스트가 아니라 실제 BE 런타임 안에서 접근 가능한 경로여야 합니다. 인증서 파일뿐 아니라 모든 상위 디렉터리도 C++/Spring 실행 사용자에게 읽기·탐색 가능해야 합니다. 개발 인증서가 권한이 제한된 DB 디렉터리에 있으면 CA 공개 인증서만 BE가 읽을 수 있는 경로로 복사하고, 개인 키가 있는 디렉터리 권한은 넓히지 마세요.
 
 ## 다중 호스트 노드 기동
 

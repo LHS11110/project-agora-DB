@@ -10,7 +10,7 @@ REDIS_INDEX_NAME="${REDIS_INDEX_NAME:-idx:canvas}"
 REDIS_NODE_PORT="${REDIS_NODE_PORT:-6379}"
 REDIS_NODE_BIND_IP="${REDIS_NODE_BIND_IP:-0.0.0.0}"
 REDIS_NODE_APPENDONLY="${REDIS_NODE_APPENDONLY:-yes}"
-REDIS_TLS_ENABLED="${REDIS_TLS_ENABLED:-false}"
+REDIS_TLS_ENABLED="${REDIS_TLS_ENABLED:-true}"
 REDIS_TLS_CERTIFICATE="${REDIS_TLS_CERTIFICATE:-/run/secrets/redis-tls/server.crt}"
 REDIS_TLS_KEY="${REDIS_TLS_KEY:-/run/secrets/redis-tls/server.key}"
 REDIS_TLS_CA_CERT="${REDIS_TLS_CA_CERT:-/run/secrets/redis-tls/ca.crt}"
@@ -41,7 +41,7 @@ if [ "$REDIS_TLS_ENABLED" = true ]; then
   cp "$REDIS_TLS_KEY" "$TLS_RUNTIME_DIR/server.key"
   cp "$REDIS_TLS_CA_CERT" "$TLS_RUNTIME_DIR/ca.crt"
   chown -R redis:redis "$TLS_RUNTIME_DIR"
-  chmod 0700 "$TLS_RUNTIME_DIR/server.key"
+  chmod 0600 "$TLS_RUNTIME_DIR/server.key"
   chmod 0644 "$TLS_RUNTIME_DIR/server.crt" "$TLS_RUNTIME_DIR/ca.crt"
   REDIS_TLS_CERTIFICATE="$TLS_RUNTIME_DIR/server.crt"
   REDIS_TLS_KEY="$TLS_RUNTIME_DIR/server.key"
@@ -80,7 +80,7 @@ CONFIG_TEMP="${CONFIG_FILE}.tmp"
     printf 'tls-ca-cert-file %s\n' "$REDIS_TLS_CA_CERT"
     printf 'tls-auth-clients no\n'
     printf 'tls-replication yes\n'
-    printf 'tls-protocols TLSv1.2 TLSv1.3\n'
+    printf 'tls-protocols "TLSv1.2 TLSv1.3"\n'
   else
     printf 'port %s\n' "$REDIS_NODE_PORT"
   fi

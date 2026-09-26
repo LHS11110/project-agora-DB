@@ -178,7 +178,8 @@ services:
     volumes:
       - redis_insight_data:/data
     networks:
-      - redis-ha
+      redis-ha:
+        ipv4_address: ${REDIS_INSIGHT_IP:-172.20.0.8}
 
 volumes:
   redis_primary_data:

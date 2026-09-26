@@ -7,7 +7,7 @@ shift 2
 
 exec docker exec "$CONTAINER" /bin/sh -c '
   redis_cli() {
-    if [ "${REDIS_TLS_ENABLED:-false}" = true ]; then
+    if [ "${REDIS_TLS_ENABLED:-true}" = true ]; then
       : "${REDIS_TLS_CA_CERT:=/run/secrets/redis-tls/ca.crt}"
       [ -r "$REDIS_TLS_CA_CERT" ] || { echo "Redis TLS CA is not readable" >&2; exit 1; }
       exec redis-cli --tls --cacert "$REDIS_TLS_CA_CERT" "$@"
@@ -37,7 +37,7 @@ exec docker exec "$CONTAINER" /bin/sh -c '
       ;;
     provision-app)
       : "${REDIS_USER_PASSWORD:?REDIS_USER_PASSWORD is not set in the container environment}"
-      if [ "${REDIS_TLS_ENABLED:-false}" = true ]; then
+      if [ "${REDIS_TLS_ENABLED:-true}" = true ]; then
         printf ">%s" "$REDIS_USER_PASSWORD" | REDISCLI_AUTH="$REDIS_PASSWORD" redis_cli -x \
           ACL SETUSER "${REDIS_USER:-agora_user}" reset on \
           "~${REDIS_KEY_PREFIX:-canvas:}*" "~${REDIS_INDEX_NAME:-idx:canvas}*" resetchannels -@all \

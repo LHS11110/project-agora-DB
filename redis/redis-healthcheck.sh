@@ -2,7 +2,7 @@
 set -eu
 
 MODE="${1:-node}"
-TLS_ENABLED="${REDIS_TLS_ENABLED:-false}"
+TLS_ENABLED="${REDIS_TLS_ENABLED:-true}"
 TLS_CA_CERT="${REDIS_TLS_CA_CERT:-/run/secrets/redis-tls/ca.crt}"
 
 case "$MODE" in

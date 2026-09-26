@@ -71,7 +71,7 @@ openssl x509 -req -in "$CSR_FILE" -CA "$ROOT_DIR/ca.crt" -CAkey "$ROOT_DIR/ca.ke
   -CAcreateserial -out "$SERVER_DIR/server.crt" -days 825 -sha256 -extfile "$EXT_FILE"
 cp "$ROOT_DIR/ca.crt" "$SERVER_DIR/ca.crt"
 
-chmod 0700 "$SERVER_DIR/server.key"
+chmod 0600 "$SERVER_DIR/server.key"
 chmod 0644 "$SERVER_DIR/server.crt" "$SERVER_DIR/ca.crt" "$ROOT_DIR/ca.crt"
 chmod 0600 "$ROOT_DIR/ca.key"
 openssl verify -CAfile "$ROOT_DIR/ca.crt" "$SERVER_DIR/server.crt" >/dev/null
