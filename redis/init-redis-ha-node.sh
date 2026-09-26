@@ -42,7 +42,8 @@ if [ "$ready" != true ]; then
   exit 1
 fi
 
-"$SCRIPT_DIR/redis-container-cli.sh" agora-redis-node provision-app
+"$SCRIPT_DIR/redis-container-cli.sh" agora-redis-node provision-app \
+  -h "$REDIS_NODE_BIND_IP" -p "$REDIS_NODE_PORT"
 "$SCRIPT_DIR/redis-container-cli.sh" agora-redis-node admin \
   -h "$REDIS_NODE_BIND_IP" -p "$REDIS_NODE_PORT" ACL SAVE
 
@@ -50,8 +51,7 @@ ROLE=$("$SCRIPT_DIR/redis-container-cli.sh" agora-redis-node admin \
   -h "$REDIS_NODE_BIND_IP" -p "$REDIS_NODE_PORT" --raw INFO replication \
   | sed -n 's/^role://p' | tr -d '\r')
 if [ "$ROLE" = "master" ]; then
-  REDIS_CONNECT_HOST="$REDIS_NODE_BIND_IP" REDIS_CONNECT_PORT="$REDIS_NODE_PORT" \
-    bash "$SCRIPT_DIR/init-redis.sh"
+  bash "$SCRIPT_DIR/init-redis.sh"
 else
   echo "ACL initialized on replica; the primary creates the search index and registers the endpoint."
 fi

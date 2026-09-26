@@ -16,22 +16,19 @@ chmod 700 "$(dirname "$OUT_FILE")"
 TEMP_FILE="/tmp/agora-redis-backup-$$.rdb"
 SOURCE_CONTAINER=""
 
-for candidate in agora-redis-primary agora-redis-replica-1 agora-redis-replica-2; do
+for candidate in agora-redis-primary agora-redis-replica-1 agora-redis-replica-2 agora-redis-node; do
   if [ "$(docker inspect -f '{{.State.Running}}' "$candidate" 2>/dev/null || true)" != "true" ]; then continue; fi
   role=$("$SCRIPT_DIR/redis-container-cli.sh" "$candidate" admin --raw INFO replication 2>/dev/null \
     | sed -n 's/^role://p' | tr -d '\r')
   if [ "$role" = "master" ]; then SOURCE_CONTAINER="$candidate"; break; fi
 done
 
-if [ -n "$SOURCE_CONTAINER" ]; then
-  "$SCRIPT_DIR/redis-container-cli.sh" "$SOURCE_CONTAINER" admin --rdb "$TEMP_FILE"
-elif [ "$(docker inspect -f '{{.State.Running}}' agora-redis-node 2>/dev/null || true)" = "true" ]; then
-  "$SCRIPT_DIR/redis-ha-cli.sh" --rdb "$TEMP_FILE"
-  SOURCE_CONTAINER=agora-redis-node
-else
+if [ -z "$SOURCE_CONTAINER" ]; then
   echo "No running Redis Sentinel primary was found." >&2
   exit 1
 fi
+
+"$SCRIPT_DIR/redis-container-cli.sh" "$SOURCE_CONTAINER" admin --rdb "$TEMP_FILE"
 
 docker exec "$SOURCE_CONTAINER" redis-check-rdb "$TEMP_FILE" >/dev/null
 docker cp "$SOURCE_CONTAINER:$TEMP_FILE" "$OUT_FILE"

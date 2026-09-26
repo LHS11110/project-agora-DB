@@ -17,49 +17,20 @@ NC='\033[0m'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# .env 로드
-if [ -f "$SCRIPT_DIR/.env" ]; then
-  ENV_FILE="$SCRIPT_DIR/.env"
-elif [ -f "$ROOT_DIR/redis/.env" ]; then
-  ENV_FILE="$ROOT_DIR/redis/.env"
-else
-  ENV_FILE=""
-fi
-
-if [ -n "$ENV_FILE" ]; then
-  REDIS_RAW_HOST=$(grep -v '^#' "$ENV_FILE" | grep 'REDIS_BIND_IP=' | cut -d '=' -f2- | tr -d '\r' || true)
-  if [ -z "$REDIS_RAW_HOST" ]; then
-    REDIS_RAW_HOST=$(grep -v '^#' "$ENV_FILE" | grep 'REDIS_EXTERNAL_IP=' | cut -d '=' -f2- | tr -d '\r' || echo "127.0.0.1")
-  fi
-  REDIS_HOST="127.0.0.1"
-  if [ "$REDIS_RAW_HOST" != "0.0.0.0" ] && [ -n "$REDIS_RAW_HOST" ]; then
-    REDIS_HOST="$REDIS_RAW_HOST"
-  fi
-  REDIS_PORT=$(grep -v '^#' "$ENV_FILE" | grep 'REDIS_EXTERNAL_PORT=' | cut -d '=' -f2- | tr -d '\r' || echo "6379")
-  REDIS_ADMIN_PASS=$(grep -v '^#' "$ENV_FILE" | grep 'REDIS_PASSWORD=' | cut -d '=' -f2- | tr -d '\r' || echo "")
-  REDIS_USER=$(grep -v '^#' "$ENV_FILE" | grep 'REDIS_USER=' | cut -d '=' -f2- | tr -d '\r' || echo "agora_user")
-  REDIS_USER_PASS=$(grep -v '^#' "$ENV_FILE" | grep 'REDIS_USER_PASSWORD=' | cut -d '=' -f2- | tr -d '\r' || echo "")
-  REDIS_INDEX_NAME=$(grep -v '^#' "$ENV_FILE" | grep 'REDIS_INDEX_NAME=' | cut -d '=' -f2- | tr -d '\r' || echo "idx:canvas")
-  REDIS_KEY_PREFIX=$(grep -v '^#' "$ENV_FILE" | grep 'REDIS_KEY_PREFIX=' | cut -d '=' -f2- | tr -d '\r' || echo "canvas:")
-else
-  REDIS_HOST="127.0.0.1"
-  REDIS_PORT="6379"
-  REDIS_ADMIN_PASS=""
-  REDIS_USER="agora_user"
-  REDIS_USER_PASS=""
-  REDIS_INDEX_NAME="idx:canvas"
-  REDIS_KEY_PREFIX="canvas:"
-fi
+ENV_FILE="$SCRIPT_DIR/.env"
+[ -f "$ENV_FILE" ] || { echo "Redis HA environment file not found: $ENV_FILE" >&2; exit 1; }
+read_env() { sed -n "s/^$1=//p" "$ENV_FILE" | tail -n 1 | tr -d '\r'; }
+REDIS_USER="$(read_env REDIS_USER)"
+REDIS_USER="${REDIS_USER:-agora_user}"
+REDIS_INDEX_NAME="$(read_env REDIS_INDEX_NAME)"
+REDIS_INDEX_NAME="${REDIS_INDEX_NAME:-idx:canvas}"
+REDIS_KEY_PREFIX="$(read_env REDIS_KEY_PREFIX)"
+REDIS_KEY_PREFIX="${REDIS_KEY_PREFIX:-canvas:}"
+REDIS_HOST="Sentinel HA"
+REDIS_PORT="primary:6379"
 
 run_cli() {
-  if [ "$(docker inspect -f '{{.State.Running}}' agora-redis-primary 2>/dev/null || true)" = "true" ] \
-    || [ "$(docker inspect -f '{{.State.Running}}' agora-redis-node 2>/dev/null || true)" = "true" ]; then
-    "$SCRIPT_DIR/redis-ha-cli.sh" "$@"
-  elif command -v redis-cli &> /dev/null; then
-    "$SCRIPT_DIR/redis-host-cli.sh" admin "$@"
-  else
-    "$SCRIPT_DIR/redis-container-cli.sh" agora-redis-stack admin "$@"
-  fi
+  "$SCRIPT_DIR/redis-ha-cli.sh" "$@"
 }
 
 KEY_PATTERN="${REDIS_KEY_PREFIX}*"

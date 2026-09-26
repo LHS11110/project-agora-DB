@@ -1,33 +1,25 @@
 #!/bin/bash
 # ==============================================================================
-# Redis Stack (RedisJSON + RediSearch) Database & User Initialization Script
-# .env 설정을 기반으로 일반 사용자 ACL 계정 생성, 인덱스 생성 (샘플 데이터 제외)
+# Redis Sentinel HA (RedisJSON + RediSearch) initialization.
+# Sentinel is the only supported connection path; SQL keeps one logical HA row.
 # ==============================================================================
 
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# .env 파일이 있으면 로드
 if [ -f "$SCRIPT_DIR/.env" ]; then
-  export $(grep -v '^#' "$SCRIPT_DIR/.env" | xargs)
-elif [ -f .env ]; then
-  export $(grep -v '^#' .env | xargs)
+  set -a
+  # shellcheck disable=SC1091
+  source "$SCRIPT_DIR/.env"
+  set +a
 fi
 
-REDIS_BIND_IP="${REDIS_BIND_IP:-127.0.0.1}"
-REDIS_EXTERNAL_IP="${REDIS_EXTERNAL_IP:-127.0.0.1}"
-REDIS_EXTERNAL_PORT="${REDIS_EXTERNAL_PORT:-${REDIS_PORT:-6379}}"
-
-# 로컬 스크립트 실행 시 접속 호스트 결정 (0.0.0.0 바인딩인 경우 로컬 루프백 127.0.0.1 접속)
-if [ "$REDIS_BIND_IP" = "0.0.0.0" ]; then
-  REDIS_HOST="127.0.0.1"
-else
-  REDIS_HOST="$REDIS_BIND_IP"
-fi
-REDIS_PORT="$REDIS_EXTERNAL_PORT"
-REDIS_HOST="${REDIS_CONNECT_HOST:-$REDIS_HOST}"
-REDIS_PORT="${REDIS_CONNECT_PORT:-$REDIS_PORT}"
+: "${REDIS_SENTINELS:?REDIS_SENTINELS must list the Redis HA Sentinel endpoints}"
+: "${REDIS_SENTINEL_USER:?REDIS_SENTINEL_USER must be set in redis/.env}"
+: "${REDIS_SENTINEL_PASSWORD:?REDIS_SENTINEL_PASSWORD must be set in redis/.env}"
+: "${REDIS_EXTERNAL_IP:?REDIS_EXTERNAL_IP must be the private HA primary address registered in SQL}"
+REDIS_EXTERNAL_PORT="${REDIS_EXTERNAL_PORT:-6379}"
 : "${REDIS_PASSWORD:?REDIS_PASSWORD must be set in redis/.env}"
 REDIS_ADMIN_PASS="$REDIS_PASSWORD"
 REDIS_USER="${REDIS_USER:-agora_user}"
@@ -36,50 +28,55 @@ REDIS_USER_PASS="$REDIS_USER_PASSWORD"
 REDIS_INDEX_NAME="${REDIS_INDEX_NAME:-idx:canvas}"
 REDIS_KEY_PREFIX="${REDIS_KEY_PREFIX:-canvas:}"
 
-# redis-cli 실행 래퍼 함수 (로컬 redis-cli 우선, 없으면 docker exec fallback)
-if command -v redis-cli &> /dev/null; then
-  run_admin_cli() {
+run_on_local_primary() {
+  local mode="$1"; shift
+  local container role bind_ip port
+  for container in agora-redis-primary agora-redis-replica-1 agora-redis-replica-2 agora-redis-node; do
+    [ "$(docker inspect -f '{{.State.Running}}' "$container" 2>/dev/null || true)" = true ] || continue
+    local node_args=()
+    if [ "$container" = agora-redis-node ]; then
+      bind_ip="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$container" \
+        | sed -n 's/^REDIS_NODE_BIND_IP=//p' | tail -n 1 | tr -d '\r')"
+      port="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$container" \
+        | sed -n 's/^REDIS_NODE_PORT=//p' | tail -n 1 | tr -d '\r')"
+      node_args=(-h "${bind_ip:-127.0.0.1}" -p "${port:-6379}")
+    fi
+    role="$("$SCRIPT_DIR/redis-container-cli.sh" "$container" admin "${node_args[@]}" --raw INFO replication 2>/dev/null \
+      | sed -n 's/^role://p' | tr -d '\r')"
+    if [ "$role" = master ]; then
+      "$SCRIPT_DIR/redis-container-cli.sh" "$container" "$mode" "${node_args[@]}" "$@"
+      return $?
+    fi
+  done
+  echo "Could not find a local Sentinel-managed primary." >&2
+  return 1
+}
+
+run_admin_cli() {
+  if command -v redis-cli >/dev/null 2>&1; then
     "$SCRIPT_DIR/redis-host-cli.sh" admin "$@"
-  }
-  run_user_cli() {
+  else
+    "$SCRIPT_DIR/redis-ha-cli.sh" "$@"
+  fi
+}
+run_user_cli() {
+  if command -v redis-cli >/dev/null 2>&1; then
     "$SCRIPT_DIR/redis-host-cli.sh" app "$@"
-  }
-  provision_app_acl() {
+  else
+    run_on_local_primary app "$@"
+  fi
+}
+provision_app_acl() {
+  if command -v redis-cli >/dev/null 2>&1; then
     printf '>%s' "$REDIS_USER_PASS" | "$SCRIPT_DIR/redis-host-cli.sh" admin -x \
       ACL SETUSER "$REDIS_USER" reset on \
       "~${REDIS_KEY_PREFIX}*" "~${REDIS_INDEX_NAME}*" resetchannels -@all \
       +auth +ping +role +json.get +json.set +json.arrlen +json.arrappend +json.del \
       +get +del +exists +keys +eval +ft.search +ft.info
-  }
-else
-  run_admin_cli() {
-    if [ "$(docker inspect -f '{{.State.Running}}' agora-redis-primary 2>/dev/null || true)" = "true" ]; then
-      "$SCRIPT_DIR/redis-container-cli.sh" agora-redis-primary admin "$@"
-    elif [ "$(docker inspect -f '{{.State.Running}}' agora-redis-node 2>/dev/null || true)" = "true" ]; then
-      "$SCRIPT_DIR/redis-container-cli.sh" agora-redis-node admin "$@"
-    else
-      "$SCRIPT_DIR/redis-container-cli.sh" agora-redis-stack admin "$@"
-    fi
-  }
-  run_user_cli() {
-    if [ "$(docker inspect -f '{{.State.Running}}' agora-redis-primary 2>/dev/null || true)" = "true" ]; then
-      "$SCRIPT_DIR/redis-container-cli.sh" agora-redis-primary app "$@"
-    elif [ "$(docker inspect -f '{{.State.Running}}' agora-redis-node 2>/dev/null || true)" = "true" ]; then
-      "$SCRIPT_DIR/redis-container-cli.sh" agora-redis-node app "$@"
-    else
-      "$SCRIPT_DIR/redis-container-cli.sh" agora-redis-stack app "$@"
-    fi
-  }
-  provision_app_acl() {
-    if [ "$(docker inspect -f '{{.State.Running}}' agora-redis-primary 2>/dev/null || true)" = "true" ]; then
-      "$SCRIPT_DIR/redis-container-cli.sh" agora-redis-primary provision-app
-    elif [ "$(docker inspect -f '{{.State.Running}}' agora-redis-node 2>/dev/null || true)" = "true" ]; then
-      "$SCRIPT_DIR/redis-container-cli.sh" agora-redis-node provision-app
-    else
-      "$SCRIPT_DIR/redis-container-cli.sh" agora-redis-stack provision-app
-    fi
-  }
-fi
+  else
+    run_on_local_primary provision-app
+  fi
+}
 
 echo "=== 1. Redis ACL 사용자 ($REDIS_USER) 생성 및 권한 부여 ==="
 # Keep commands used by the BE and failover/inspection checks, limited to the
@@ -129,11 +126,11 @@ echo -e "\n=== 3. 신규 사용자($REDIS_USER) 인증 및 인덱스($REDIS_INDE
 run_user_cli ping
 run_user_cli FT.INFO "$REDIS_INDEX_NAME" | head -n 4
 
-echo -e "\n=== 4. MS SQL에 Redis 외부 접속 정보($REDIS_EXTERNAL_IP:$REDIS_EXTERNAL_PORT) 등록 ==="
+echo -e "\n=== 4. MS SQL에 Redis HA 논리 서비스($REDIS_EXTERNAL_IP:$REDIS_EXTERNAL_PORT) 등록 ==="
 if [ -f "$SCRIPT_DIR/register-to-mssql.sh" ]; then
   bash "$SCRIPT_DIR/register-to-mssql.sh"
 else
   echo "[WARN] $SCRIPT_DIR/register-to-mssql.sh 스크립트를 찾을 수 없어 MS SQL 등록을 건너뜁니다."
 fi
 
-echo -e "\n[SUCCESS] Redis Stack 사용자/인덱스 구축 및 MS SQL 서버 등록이 완료되었습니다."
+echo -e "\n[SUCCESS] Redis HA ACL/인덱스 구성 및 단일 논리 서비스 SQL 등록이 완료되었습니다."

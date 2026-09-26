@@ -38,6 +38,23 @@ for container in agora-redis-primary agora-redis-replica-1 agora-redis-replica-2
   "$SCRIPT_DIR/redis-container-cli.sh" "$container" admin ACL SAVE
 done
 
-# Creates the JSON search index on the initial primary and registers the
-# existing Redis endpoint with MSSQL.
+for container in agora-redis-sentinel-1 agora-redis-sentinel-2 agora-redis-sentinel-3; do
+  ready=false
+  for attempt in {1..90}; do
+    if [ "$(docker inspect -f '{{.State.Health.Status}}' "$container" 2>/dev/null || true)" = "healthy" ]; then
+      ready=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$ready" != true ]; then
+    echo "Redis Sentinel did not become healthy: $container" >&2
+    exit 1
+  fi
+done
+
+"$SCRIPT_DIR/redis-ha-cli.sh" ping >/dev/null
+
+# Creates the JSON search index through Sentinel and registers exactly one
+# logical Redis HA service row with MSSQL.
 bash "$SCRIPT_DIR/init-redis.sh"

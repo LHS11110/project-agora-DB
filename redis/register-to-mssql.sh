@@ -1,8 +1,7 @@
 #!/bin/bash
 # ==============================================================================
 # Agora Redis -> MS SQL Registration Script
-# redis/.env에 설정된 외부 접속 IP(REDIS_EXTERNAL_IP) 및 외부 포트(REDIS_EXTERNAL_PORT)를
-# MS SQL Server의 redis_server 테이블에 등록하는 스크립트
+# redis/.env에 설정된 Redis HA primary 사설 주소를 SQL의 단일 논리 서비스 행으로 등록합니다.
 # ==============================================================================
 
 set -e
@@ -46,8 +45,25 @@ elif [ -f .env ]; then
 fi
 
 # 3. 접속 및 등록 변수 확정
-REDIS_IP="${REDIS_EXTERNAL_IP:-127.0.0.1}"
-REDIS_EXT_PORT="${REDIS_EXTERNAL_PORT:-${REDIS_PORT:-6379}}"
+REDIS_IP="${REDIS_EXTERNAL_IP:-}"
+REDIS_EXT_PORT="${REDIS_EXTERNAL_PORT:-6379}"
+: "${REDIS_IP:?REDIS_EXTERNAL_IP must be the private address of the Redis HA primary}"
+if [[ ! "$REDIS_IP" =~ ^[0-9A-Fa-f:.]+$ ]]; then
+  echo "REDIS_EXTERNAL_IP must be a literal IPv4 or IPv6 address." >&2
+  exit 2
+fi
+python3 - "$REDIS_IP" <<'PY'
+import ipaddress
+import sys
+
+address = ipaddress.ip_address(sys.argv[1])
+if not address.is_private or address.is_loopback or address.is_link_local or address.is_multicast or address.is_unspecified:
+    raise SystemExit("REDIS_EXTERNAL_IP must be a private unicast address, not loopback or wildcard.")
+PY
+if [[ ! "$REDIS_EXT_PORT" =~ ^[0-9]+$ ]] || (( REDIS_EXT_PORT < 1 || REDIS_EXT_PORT > 65535 )); then
+  echo "REDIS_EXTERNAL_PORT must be a port from 1 through 65535." >&2
+  exit 2
+fi
 
 MSSQL_RAW_HOST="${MSSQL_TEST_HOST:-${DB_HOST:-${MSSQL_HOST:-${MSSQL_ENV_HOST:-127.0.0.1}}}}"
 if [ "$MSSQL_RAW_HOST" = "0.0.0.0" ]; then
@@ -76,8 +92,8 @@ fi
 echo "=================================================================="
 echo "  Agora Redis -> MS SQL External Endpoint Registration"
 echo "=================================================================="
-echo "  - 등록 대상 Redis 외부 IP:   $REDIS_IP"
-echo "  - 등록 대상 Redis 외부 포트: $REDIS_EXT_PORT"
+echo "  - 등록 대상 Redis HA primary 사설 IP: $REDIS_IP"
+echo "  - Redis 서비스 포트:                 $REDIS_EXT_PORT"
 echo "  - 대상 MS SQL 서버:          $MSSQL_HOST:$MSSQL_PORT ($MSSQL_DB)"
 echo "  - 대상 테이블:               $MSSQL_TABLE"
 echo "=================================================================="
@@ -114,25 +130,27 @@ if [ "$TABLE_COUNT" != "1" ]; then
   exit 1
 fi
 
-# 6. 중복 방지(Idempotent) 등록 쿼리 수행
+# 6. Redis HA는 SQL에 하나의 논리 서비스만 활성화합니다.
+#    기존 행은 FK 참조를 보존한 채 비활성화하고 대상 HA 주소만 upsert합니다.
 REGISTER_SQL=$(cat <<EOF
 SET NOCOUNT ON;
-IF NOT EXISTS (
-    SELECT 1 FROM [$MSSQL_TABLE]
-    WHERE redis_ip = '$REDIS_IP' AND redis_port = '$REDIS_EXT_PORT'
-)
-BEGIN
-    INSERT INTO [$MSSQL_TABLE] (redis_ip, redis_port, is_activated)
-    VALUES ('$REDIS_IP', '$REDIS_EXT_PORT', 1);
-    SELECT 'SUCCESS_INSERTED' AS [result_status];
-END
-ELSE
+SET XACT_ABORT ON;
+BEGIN TRANSACTION;
+UPDATE [$MSSQL_TABLE] SET is_activated = 0 WHERE is_activated <> 0;
+IF EXISTS (SELECT 1 FROM [$MSSQL_TABLE] WHERE redis_ip = '$REDIS_IP' AND redis_port = '$REDIS_EXT_PORT')
 BEGIN
     UPDATE [$MSSQL_TABLE]
     SET is_activated = 1
     WHERE redis_ip = '$REDIS_IP' AND redis_port = '$REDIS_EXT_PORT';
     SELECT 'ALREADY_EXISTS' AS [result_status];
 END
+ELSE
+BEGIN
+    INSERT INTO [$MSSQL_TABLE] (redis_ip, redis_port, is_activated)
+    VALUES ('$REDIS_IP', '$REDIS_EXT_PORT', 1);
+    SELECT 'SUCCESS_INSERTED' AS [result_status];
+END;
+COMMIT TRANSACTION;
 EOF
 )
 
@@ -140,9 +158,9 @@ RESULT_OUT=$(run_mssql_cmd "$REGISTER_SQL" 2>&1)
 
 if echo "$RESULT_OUT" | grep -q "SUCCESS_INSERTED"; then
   echo -e "\n[OK] 신규 Redis 서버가 MS SQL [$MSSQL_TABLE] 테이블에 성공적으로 등록되었습니다!"
-  echo "     (redis_ip: $REDIS_IP, redis_port: $REDIS_EXT_PORT)"
+  echo "     (HA primary private address: $REDIS_IP, port: $REDIS_EXT_PORT)"
 elif echo "$RESULT_OUT" | grep -q "ALREADY_EXISTS"; then
-  echo -e "\n[INFO] 해당 Redis 서버($REDIS_IP:$REDIS_EXT_PORT)는 이미 MS SQL [$MSSQL_TABLE] 테이블에 등록되어 있습니다."
+  echo -e "\n[INFO] Redis HA 논리 서비스($REDIS_IP:$REDIS_EXT_PORT)가 이미 등록되어 활성화되었습니다."
 else
   echo -e "\n[ERROR] Redis 서버 등록 중 예기치 않은 응답이 발생했습니다:"
   echo "$RESULT_OUT"

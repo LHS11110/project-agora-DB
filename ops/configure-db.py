@@ -349,7 +349,6 @@ def validate(args: argparse.Namespace) -> None:
     for compose_args in (
         ("-f", "docker-compose.yml"),
         ("--env-file", "mssql/.env", "-f", "mssql/docker-compose.yml"),
-        ("--env-file", "redis/.env", "-f", "redis/docker-compose.yml"),
         ("--env-file", "redis/.env", "-p", "agora-redis-ha", "-f", "redis/docker-compose.sentinel.yml"),
         ("--env-file", "mssql/.env", "-f", "mssql/cluster/docker-compose.node.yml"),
         ("--env-file", "redis/.env", "-p", "agora-check", "-f", "redis/docker-compose.ha-node.yml"),
@@ -728,9 +727,22 @@ def deploy_redis_node(args: argparse.Namespace) -> None:
 
 def deploy_local(args: argparse.Namespace) -> None:
     validate(argparse.Namespace(profile="development", sql_host=None, es_host=None, redis_sentinels=None))
-    services = ["mssql", "elasticsearch", "redis-stack", "redis-insight"]
-    subprocess.run(["docker", "compose", "-f", "docker-compose.yml", "up", "-d", *services], cwd=ROOT, check=True)
-    containers = {"mssql": "agora-mssql", "elasticsearch": "agora-elasticsearch", "redis-stack": "agora-redis-stack"}
+    subprocess.run([str(ROOT / "ops" / "migrate-local-redis-ha.sh")], cwd=ROOT, check=True)
+    subprocess.run(
+        ["docker", "compose", "-p", "project-agora-db", "-f", "docker-compose.yml", "up", "-d",
+         "mssql", "elasticsearch"],
+        cwd=ROOT, check=True,
+    )
+    containers = {
+        "mssql": "agora-mssql",
+        "elasticsearch": "agora-elasticsearch",
+        "redis-primary": "agora-redis-primary",
+        "redis-replica-1": "agora-redis-replica-1",
+        "redis-replica-2": "agora-redis-replica-2",
+        "redis-sentinel-1": "agora-redis-sentinel-1",
+        "redis-sentinel-2": "agora-redis-sentinel-2",
+        "redis-sentinel-3": "agora-redis-sentinel-3",
+    }
     deadline = time.monotonic() + 600
     pending = set(containers)
     while pending and time.monotonic() < deadline:
@@ -743,9 +755,13 @@ def deploy_local(args: argparse.Namespace) -> None:
             time.sleep(3)
     if pending:
         raise SetupError("Services did not become healthy: " + ", ".join(sorted(pending)))
-    for script in ("mssql/init-mssql.sh", "redis/init-redis.sh", "elasticsearch/init-elasticsearch.sh"):
+    for script in (
+        "mssql/init-mssql.sh",
+        "redis/init-redis-sentinel.sh",
+        "elasticsearch/init-elasticsearch.sh",
+    ):
         subprocess.run([str(ROOT / script)], cwd=ROOT, check=True)
-    print("Local single-node services are initialized. This mode is not an HA production deployment.")
+    print("Local Sentinel HA development services are initialized. This mode is not a multi-host production deployment.")
 
 
 def prepare_storage(args: argparse.Namespace) -> None:
@@ -789,7 +805,7 @@ def build_parser() -> argparse.ArgumentParser:
     sync.add_argument("--redis-ca-cert", required=True, help="Absolute Redis CA path available inside the BE runtime.")
     sync.add_argument("--redis-sentinels", required=True, help="Three comma-separated private host:26379 seeds.")
     subparsers.add_parser("prepare-storage", help="Prepare Elasticsearch snapshot/certificate directories and UID access.")
-    subparsers.add_parser("deploy-local", help="Start and initialize the development single-node stack.")
+    subparsers.add_parser("deploy-local", help="Start and initialize the development Sentinel HA stack.")
     subparsers.add_parser("deploy-sql-ag-node", help="Start one configured SQL Server AG container; does not create the AG.")
     subparsers.add_parser("deploy-redis-ha-node", help="Start and initialize one Redis/Sentinel HA host.")
     return parser

@@ -9,6 +9,7 @@ MASTER_HOST="${REDIS_SENTINEL_MASTER_HOST:-redis-primary}"
 SENTINEL_BIND_IP="${REDIS_SENTINEL_BIND_IP:-0.0.0.0}"
 SENTINEL_PORT="${REDIS_SENTINEL_PORT:-26379}"
 NODE_PORT="${REDIS_NODE_PORT:-6379}"
+MASTER_NAME="${REDIS_SENTINEL_MASTER_NAME:-agora-master}"
 TLS_ENABLED="${REDIS_TLS_ENABLED:-true}"
 TLS_CERTIFICATE="${REDIS_TLS_CERTIFICATE:-/run/secrets/redis-tls/server.crt}"
 TLS_KEY="${REDIS_TLS_KEY:-/run/secrets/redis-tls/server.key}"
@@ -16,19 +17,19 @@ TLS_CA_CERT="${REDIS_TLS_CA_CERT:-/run/secrets/redis-tls/ca.crt}"
 ESCAPED_PASSWORD=$(printf '%s' "$REDIS_PASSWORD" | sed 's/\\/\\\\/g; s/"/\\"/g')
 PASSWORD_HASH=$(printf '%s' "$REDIS_PASSWORD" | sha256sum | awk '{print $1}')
 
-SENTINEL_ACL="user default on nopass -@all +auth +client|getname +client|id +client|setname +client|setinfo +command +hello +ping +role +sentinel|get-master-addr-by-name +sentinel|master +sentinel|myid +sentinel|replicas +sentinel|sentinels +sentinel|masters"
-if [ -n "${REDIS_SENTINEL_USER:-}" ] || [ -n "${REDIS_SENTINEL_PASSWORD:-}" ]; then
-  : "${REDIS_SENTINEL_USER:?REDIS_SENTINEL_USER is required with REDIS_SENTINEL_PASSWORD}"
-  : "${REDIS_SENTINEL_PASSWORD:?REDIS_SENTINEL_PASSWORD is required with REDIS_SENTINEL_USER}"
-  case "$REDIS_SENTINEL_USER" in
-    *[!A-Za-z0-9_.-]*) echo "REDIS_SENTINEL_USER contains unsupported ACL username characters." >&2; exit 1 ;;
-  esac
-  SENTINEL_PASSWORD_HASH=$(printf '%s' "$REDIS_SENTINEL_PASSWORD" | sha256sum | awk '{print $1}')
-  SENTINEL_ACL="user default off
+: "${REDIS_SENTINEL_USER:?REDIS_SENTINEL_USER is required}"
+: "${REDIS_SENTINEL_PASSWORD:?REDIS_SENTINEL_PASSWORD is required}"
+case "$REDIS_SENTINEL_USER" in
+  *[!A-Za-z0-9_.-]*) echo "REDIS_SENTINEL_USER contains unsupported ACL username characters." >&2; exit 1 ;;
+esac
+case "$MASTER_NAME" in
+  *[!A-Za-z0-9_.-]*) echo "REDIS_SENTINEL_MASTER_NAME contains unsupported characters." >&2; exit 1 ;;
+esac
+SENTINEL_PASSWORD_HASH=$(printf '%s' "$REDIS_SENTINEL_PASSWORD" | sha256sum | awk '{print $1}')
+SENTINEL_ACL="user default off
 user $REDIS_SENTINEL_USER on #$SENTINEL_PASSWORD_HASH -@all +auth +ping \
 +sentinel|get-master-addr-by-name +sentinel|masters +sentinel|master \
 +sentinel|replicas +sentinel|sentinels +sentinel|myid"
-fi
 case "$TLS_ENABLED" in
   true|false) ;;
   *) echo "REDIS_TLS_ENABLED must be true or false." >&2; exit 1 ;;
@@ -82,13 +83,13 @@ dir /data
 aclfile $ACL_FILE
 sentinel resolve-hostnames yes
 sentinel announce-hostnames no
-sentinel monitor agora-master $MASTER_HOST $NODE_PORT 2
-sentinel auth-pass agora-master "$ESCAPED_PASSWORD"
+sentinel monitor $MASTER_NAME $MASTER_HOST $NODE_PORT 2
+sentinel auth-pass $MASTER_NAME "$ESCAPED_PASSWORD"
 sentinel sentinel-user sentinel-internal
 sentinel sentinel-pass "$ESCAPED_PASSWORD"
-sentinel down-after-milliseconds agora-master 5000
-sentinel failover-timeout agora-master 60000
-sentinel parallel-syncs agora-master 1
+sentinel down-after-milliseconds $MASTER_NAME 5000
+sentinel failover-timeout $MASTER_NAME 60000
+sentinel parallel-syncs $MASTER_NAME 1
 EOF
   if [ -n "${REDIS_SENTINEL_ANNOUNCE_IP:-}" ]; then
     printf 'sentinel announce-ip %s\n' "$REDIS_SENTINEL_ANNOUNCE_IP" >> "$CONFIG_FILE"
@@ -150,7 +151,7 @@ set_config_line() {
 }
 set_config_line 'aclfile ' "aclfile $ACL_FILE"
 set_config_line 'sentinel announce-hostnames ' 'sentinel announce-hostnames no'
-set_config_line 'sentinel auth-pass agora-master ' "sentinel auth-pass agora-master \"$ESCAPED_PASSWORD\""
+set_config_line "sentinel auth-pass $MASTER_NAME " "sentinel auth-pass $MASTER_NAME \"$ESCAPED_PASSWORD\""
 set_config_line 'sentinel sentinel-user ' 'sentinel sentinel-user sentinel-internal'
 set_config_line 'sentinel sentinel-pass ' "sentinel sentinel-pass \"$ESCAPED_PASSWORD\""
 if [ "$TLS_ENABLED" = true ]; then

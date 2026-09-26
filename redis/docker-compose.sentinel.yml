@@ -1,5 +1,5 @@
 # Redis Stack HA topology: one primary, two replicas, three Sentinels.
-# Run separately from the single-node root Compose stack.
+# This is the default Redis topology in the repository root Compose stack.
 services:
   redis-primary:
     image: redis:8.6.7

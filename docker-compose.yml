@@ -1,6 +1,8 @@
 # Agora Database Infrastructure Root Compose
-# 각 서비스(elasticsearch, redis, mssql)의 Compose 설정을 통합 관리합니다.
+# 기본 로컬 구성은 Elasticsearch, Redis Sentinel HA, MSSQL입니다.
+name: project-agora-db
+
 include:
   - path: ./elasticsearch/docker-compose.yml
-  - path: ./redis/docker-compose.yml
+  - path: ./redis/docker-compose.sentinel.yml
   - path: ./mssql/docker-compose.yml

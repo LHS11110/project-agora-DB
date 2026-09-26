@@ -10,42 +10,38 @@ unavailable with the OSS Cluster API. Sentinel clients must explicitly support
 Sentinel to discover the promoted primary ([Redis Search limitations](https://redis.io/docs/latest/operate/oss_and_stack/stack-with-enterprise/search/),
 [Sentinel client requirements](https://redis.io/docs/latest/develop/reference/sentinel-clients/)).
 
-## Move the current single-node data
+## Move legacy single-node data into HA
 
-The HA Compose project creates new named volumes, so it will not see the
-existing `redis_data` volume automatically. Save an RDB snapshot while the
-single-node Redis is still running:
+The standalone Compose service has been removed. For a host that still has the
+old `agora-redis-stack` container and `project-agora-db_redis_data` volume,
+export one RDB while that container is still running:
 
 ```bash
-./redis/snapshot-standalone.sh
+./redis/export-legacy-redis-rdb.sh /tmp/agora-redis-dump.rdb
 ```
 
-The snapshot is written to `/tmp/agora-redis-dump.rdb` with mode `0600`; treat
-it as application data. Stop the standalone Redis and create the new primary
-container. Import through a short-lived helper container that mounts the
-actual named volume; copying to a stopped container does not reliably write
-through its volume mount:
+The RDB is written with mode `0600`; treat it as application data. The export
+helper only reads the retired container and is not a way to deploy standalone
+Redis. Stop and remove that container while retaining its volume, then create
+the new HA primary. The import helper mounts the actual named volume; copying
+to a stopped container does not reliably write through its volume mount:
 
 ```bash
-docker compose --env-file redis/.env -p project-agora-db -f redis/docker-compose.yml stop redis-stack
-docker compose --env-file redis/.env -p agora-redis-ha \
-  -f redis/docker-compose.sentinel.yml create redis-primary
+docker stop agora-redis-stack
+docker rm agora-redis-stack
+docker compose create redis-primary
 ./redis/import-rdb-into-ha-volume.sh /tmp/agora-redis-dump.rdb agora-redis-primary
-REDIS_NODE_APPENDONLY=no docker compose --env-file redis/.env -p agora-redis-ha \
-  -f redis/docker-compose.sentinel.yml up -d redis-primary
+REDIS_NODE_APPENDONLY=no docker compose up -d redis-primary
 # Confirm the expected key count and RediSearch index before proceeding.
-docker compose --env-file redis/.env -p agora-redis-ha \
-  -f redis/docker-compose.sentinel.yml stop redis-primary
-REDIS_NODE_APPENDONLY=yes docker compose --env-file redis/.env -p agora-redis-ha \
-  -f redis/docker-compose.sentinel.yml up -d redis-primary
-REDIS_NODE_APPENDONLY=yes docker compose --env-file redis/.env -p agora-redis-ha \
-  -f redis/docker-compose.sentinel.yml up -d redis-primary redis-replica-1 \
-  redis-replica-2 redis-sentinel-1 redis-sentinel-2 redis-sentinel-3
+docker compose stop redis-primary
+REDIS_NODE_APPENDONLY=yes ALLOW_STANDALONE_DATA_RETAINED=true ./ops/migrate-local-redis-ha.sh
 ./redis/init-redis-sentinel.sh
 ```
 
-The replicas synchronize from that primary. Keep the old standalone volume
-and the snapshot until the new data and search index have been checked.
+The migration command starts all six Sentinel HA containers. The replicas
+synchronize from the restored primary. The old volume is intentionally
+retained; remove it manually only after the HA data and search index are
+verified and a separate backup exists.
 
 ## Multi-host deployment
 
@@ -93,15 +89,17 @@ ACL uses the existing Redis admin password. Set a separate
 `REDIS_SENTINEL_USER` and `REDIS_SENTINEL_PASSWORD` in `redis/.env` and in the
 BE secret environment. The generated reader ACL permits read-only topology
 queries needed by Sentinel clients, including `SENTINEL MASTERS`; it does not
-permit failover or configuration changes. Do not deploy with the
-unauthenticated development fallback. Keep port 26379 firewalled to the
+permit failover or configuration changes. Sentinel credentials are mandatory
+for all application and maintenance clients. Keep port 26379 firewalled to the
 application and Redis hosts.
 
-Set `REDIS_EXTERNAL_IP` in `redis/.env` to the initial primary's client-facing
-address before running the primary initializer. SQL stores that endpoint for
-the existing `redis_id` registration, while BE/C++ in Sentinel mode use the
-configured Sentinel seeds to discover the current primary and ignore the row's
-IP/port for data connections. Failover does not require changing the row.
+Set `REDIS_EXTERNAL_IP` in `redis/.env` to the initial primary's private,
+client-reachable address before running the primary initializer. SQL keeps
+one active `redis_server` row for the HA service and preserves older rows as
+inactive records so existing foreign keys remain valid. BE/C++ require the
+configured Sentinel seeds to discover the current primary and ignore the
+row's IP/port for Redis data connections. Failover does not require changing
+the row.
 
 `REDIS_NODE_ANNOUNCE_IP` must be reachable from every Redis node and client.
 Allow Redis port 6379 between nodes and clients, and Sentinel port 26379
@@ -118,33 +116,40 @@ that packets avoid untrusted network paths.
 
 ## Local failover lab and data safety
 
-`redis/docker-compose.sentinel.yml` runs all six Redis/Sentinel containers on
-one host in an `internal: true` Docker network for development and failover
-exercises. Redis ports are TLS-only; host applications on this machine use
-the fixed Docker bridge addresses in `REDIS_SENTINELS`. This setup does not
-protect against that host failing. Redis uses asynchronous replication, so
-failover can lose the most recent writes if they had not reached a replica yet.
+The root Compose includes `redis/docker-compose.sentinel.yml` and runs the six
+Redis/Sentinel containers on one host in an `internal: true` Docker network
+for development and failover exercises. Redis ports are TLS-only; host
+applications on this machine use the fixed Docker bridge addresses in
+`REDIS_SENTINELS`. This setup does not protect against that host failing.
+Redis uses asynchronous replication, so failover can lose the most recent
+writes if they had not reached a replica yet.
 
 ### Restart the local Sentinel lab
 
-Run these commands from the repository root. Keep the Compose project name
-`project-agora-db-ha`: changing it creates a different set of named volumes
-and can make an existing Redis dataset appear empty. `up -d` starts the
-primary first, then its replicas and Sentinels, and also starts Redis Insight.
+Run these commands from the repository root. If upgrading from the previous
+`project-agora-db-ha` project, first run `./ops/migrate-local-redis-ha.sh` to
+copy the existing HA volumes into the default project. The old volumes remain
+as a rollback copy. `up -d` starts the primary first, then its replicas and
+Sentinels, and also starts Redis Insight.
 
 ```bash
-docker compose --env-file redis/.env -p project-agora-db-ha \
-  -f redis/docker-compose.sentinel.yml up -d
-docker compose --env-file redis/.env -p project-agora-db-ha \
-  -f redis/docker-compose.sentinel.yml ps
+docker compose up -d redis-primary redis-replica-1 redis-replica-2 \
+  redis-sentinel-1 redis-sentinel-2 redis-sentinel-3 redis-insight
+docker compose ps
 ```
 
 Wait for the primary, both replicas, and all three Sentinels to show `healthy`;
-Redis Insight should show `running`. To stop this stack while retaining data,
-run the same command with `stop` in place of `ps`. A normal restart does not
-need `init-redis-sentinel.sh`; run initialization only for a new/empty
-deployment or when deliberately repairing its schema and registrations. Do
-not use `down -v` when you need to keep the Redis data.
+Redis Insight should show `running`. `docker compose up` starts Redis services
+but does not create the app ACL, search index, or SQL registration. Run
+`./redis/init-redis-sentinel.sh` after SQL schema initialization and whenever
+the HA Redis registration needs repair. To stop this stack while retaining
+data, run the following command. Do not use `down -v` when you need to keep
+the Redis data.
+
+```bash
+docker compose stop redis-primary redis-replica-1 redis-replica-2 \
+  redis-sentinel-1 redis-sentinel-2 redis-sentinel-3 redis-insight
+```
 
 The repository's maintenance CLI scripts locate the current primary by
 checking the local Redis/Sentinel containers. The existing `redis_server`
@@ -156,9 +161,8 @@ Run the local automatic failover exercise after starting and initializing the
 Sentinel lab:
 
 ```bash
-docker compose -p project-agora-db stop redis-stack
-docker compose --env-file redis/.env -p project-agora-db-ha \
-  -f redis/docker-compose.sentinel.yml up -d
+docker compose up -d redis-primary redis-replica-1 redis-replica-2 \
+  redis-sentinel-1 redis-sentinel-2 redis-sentinel-3 redis-insight
 ./redis/init-redis-sentinel.sh
 ./redis/test-failover.sh
 ```

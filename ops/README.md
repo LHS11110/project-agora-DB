@@ -26,7 +26,7 @@ python3 ops/configure-db.py validate --profile development
 python3 ops/configure-db.py deploy-local
 ```
 
-`prepare`는 누락된 `.env`를 `.env.example`에서 만들고 placeholder 비밀번호를 서로 다른 난수로 바꿉니다. 이미 설정된 비밀번호는 유지합니다. 파일 권한은 `0600`으로 설정하며 인증서는 발급하지 않습니다. `deploy-local`은 단일 노드 개발 서비스를 올리고 health check 및 초기화를 수행합니다.
+`prepare`는 누락된 `.env`를 `.env.example`에서 만들고 placeholder 비밀번호를 서로 다른 난수로 바꿉니다. 이미 설정된 비밀번호는 유지합니다. 파일 권한은 `0600`으로 설정하며 인증서는 발급하지 않습니다. `deploy-local`은 기본 Compose 프로젝트에서 Redis Sentinel HA와 SQL·Elasticsearch를 시작하고 health check 및 초기화를 수행합니다.
 
 ## 운영 사전 검사
 

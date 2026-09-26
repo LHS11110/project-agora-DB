@@ -253,7 +253,7 @@ curl_es -s -f -u "$ES_SUPER_USER:$ES_SUPER_PASS" -X PUT "$ES_HOST/_ilm/policy/$L
 EOF
 curl_es -s -f -u "$ES_SUPER_USER:$ES_SUPER_PASS" -X PUT "$ES_HOST/_index_template/${LOG_INDEX}-template" \
      -H 'Content-Type: application/json' --data-binary @- <<EOF
-{"index_patterns":["${LOG_INDEX}-*"],"priority":500,"template":{"settings":{"number_of_shards":1,"number_of_replicas":0,"index.lifecycle.name":"${LOG_RETENTION_POLICY}","index.lifecycle.rollover_alias":"${LOG_INDEX}"}}}
+{"index_patterns":["${LOG_INDEX}-*"],"priority":500,"template":{"settings":{"number_of_shards":1,"number_of_replicas":0,"index.lifecycle.name":"${LOG_RETENTION_POLICY}","index.lifecycle.rollover_alias":"${LOG_INDEX}"},"mappings":{"properties":{"@timestamp":{"type":"long"}}}}}
 EOF
 
 LOG_ALIAS_STATUS=$(curl_es -s -o /dev/null -w "%{http_code}" -u "$ES_SUPER_USER:$ES_SUPER_PASS" "$ES_HOST/_alias/$LOG_INDEX")

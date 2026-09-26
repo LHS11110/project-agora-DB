@@ -18,10 +18,10 @@ REDIS_ADMIN_PASS="$(read_env REDIS_PASSWORD)"
 : "${REDIS_ADMIN_PASS:?REDIS_PASSWORD must be set in redis/.env}"
 REDIS_SENTINEL_USER="$(read_env REDIS_SENTINEL_USER)"
 REDIS_SENTINEL_PASS="$(read_env REDIS_SENTINEL_PASSWORD)"
-if [ -n "$REDIS_SENTINEL_USER" ] && [ -z "$REDIS_SENTINEL_PASS" ] || [ -z "$REDIS_SENTINEL_USER" ] && [ -n "$REDIS_SENTINEL_PASS" ]; then
-  echo "REDIS_SENTINEL_USER and REDIS_SENTINEL_PASSWORD must be set together." >&2
-  exit 1
-fi
+: "${REDIS_SENTINEL_USER:?REDIS_SENTINEL_USER must be set in redis/.env}"
+: "${REDIS_SENTINEL_PASS:?REDIS_SENTINEL_PASSWORD must be set in redis/.env}"
+REDIS_SENTINELS="$(read_env REDIS_SENTINELS)"
+: "${REDIS_SENTINELS:?REDIS_SENTINELS must be set in redis/.env}"
 for container in agora-redis-primary agora-redis-replica-1 agora-redis-replica-2; do
   if [ "$(docker inspect -f '{{.State.Running}}' "$container" 2>/dev/null || true)" != "true" ]; then
     continue
@@ -34,15 +34,16 @@ for container in agora-redis-primary agora-redis-replica-1 agora-redis-replica-2
   fi
 done
 
+if command -v redis-cli >/dev/null 2>&1; then
+  exec "$SCRIPT_DIR/redis-host-cli.sh" admin "$@"
+fi
+
 if [ "$(docker inspect -f '{{.State.Running}}' agora-redis-node 2>/dev/null || true)" = "true" ] \
   && [ "$(docker inspect -f '{{.State.Running}}' agora-redis-sentinel 2>/dev/null || true)" = "true" ]; then
-  if [ -n "$REDIS_SENTINEL_PASS" ]; then
-    master_info=$("$SCRIPT_DIR/redis-container-cli.sh" agora-redis-sentinel sentinel \
-      --raw SENTINEL get-master-addr-by-name agora-master)
-  else
-    master_info=$(docker exec agora-redis-sentinel redis-cli -p 26379 --raw \
-      SENTINEL get-master-addr-by-name agora-master)
-  fi
+  master_name="$(read_env REDIS_SENTINEL_MASTER_NAME)"
+  master_name="${master_name:-agora-master}"
+  master_info=$("$SCRIPT_DIR/redis-container-cli.sh" agora-redis-sentinel sentinel \
+    --raw SENTINEL get-master-addr-by-name "$master_name")
   master_host=$(printf '%s\n' "$master_info" | sed -n '1p')
   master_port=$(printf '%s\n' "$master_info" | sed -n '2p')
   if [ -n "$master_host" ] && [ -n "$master_port" ]; then

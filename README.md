@@ -1,6 +1,6 @@
 # Project Agora DB
 
-Project Agora의 저장소 인프라입니다. 기본 Docker Compose 구성은 개발용 단일 노드입니다. 클러스터 배포 템플릿은 MS SQL Server Availability Group과 Redis Sentinel HA 구성으로 별도 제공합니다. 애플리케이션 계정, 스키마, RedisJSON/RediSearch, Elasticsearch 인덱스를 초기화합니다.
+Project Agora의 저장소 인프라입니다. 기본 Docker Compose 구성은 개발용 Redis Sentinel HA와 단일 노드 MS SQL Server·Elasticsearch입니다. 실제 호스트 장애까지 보호하는 SQL Server Availability Group과 다중 호스트 Redis Sentinel 배포 템플릿도 제공합니다. 애플리케이션 계정, 스키마, RedisJSON/RediSearch, Elasticsearch 인덱스를 초기화합니다.
 
 애플리케이션 및 실시간 서버는 [Project Agora BE](../project-agora-BE)에서 실행합니다.
 
@@ -9,16 +9,17 @@ Project Agora의 저장소 인프라입니다. 기본 Docker Compose 구성은 �
 | 저장소 | 역할 | 컨테이너 | 기본 로컬 포트 |
 | --- | --- | --- | --- |
 | MS SQL Server 2022 CU27 | 사용자, 세션, 캔버스 배정, C++·Redis 서버 메타데이터 | `agora-mssql` | `1433` |
-| Redis 8.6.7 | 활성 캔버스 RedisJSON, RediSearch | `agora-redis-stack` | `6379` |
+| Redis 8.6.7 Sentinel HA | 활성 캔버스 RedisJSON, RediSearch | `agora-redis-primary`, replicas 2개, Sentinels 3개 | `6379`, `26379–26381` |
 | Redis Insight 3.8.0 | Redis 관리 UI | Compose가 프로젝트별 이름을 생성 | `8001` |
 | Elasticsearch 8.19.22 | 캔버스 문서, 백엔드 애플리케이션 로그 | `agora-elasticsearch` | `9200` |
 
-기본 단일 노드 구성의 세 서비스는 Compose 네트워크 `agora-net`을 공유합니다. 기본값은 호스트의 loopback에만 DB, Redis, Elasticsearch를 바인딩합니다. HA 구성은 별도 Compose 네트워크와 노드 구성을 사용합니다.
+MSSQL과 Elasticsearch는 Compose 네트워크 `agora-net`을 공유하고 Redis 노드와 Sentinels는 내부 전용 `agora-redis-ha` 네트워크를 사용합니다. 기본값은 호스트의 loopback에만 서비스를 바인딩합니다. 루트 Compose는 같은 호스트에서 Redis primary·replica·Sentinel failover를 제공하며, 호스트 장애까지 견디는 운영 구성은 여러 호스트에 별도 배포해야 합니다.
 
 ```mermaid
 flowchart LR
     BE[Project Agora BE] --> MSSQL[(MS SQL Server)]
-    BE --> Redis[(Redis Stack)]
+    BE --> Sentinel[Redis Sentinel]
+    Sentinel --> Redis[(Redis primary / RedisJSON)]
     BE --> ES[(Elasticsearch)]
     MSSQL -->|redis_server 배정 정보| Redis
     MSSQL -->|cpp_server heartbeat·canvas_info| BE
@@ -60,7 +61,7 @@ docker compose up -d
 docker compose ps
 ```
 
-`mssql-init`은 MS SQL health check 이후 스키마를 적용하는 일회성 컨테이너입니다. 상태와 로그를 확인합니다.
+`mssql-init`은 MS SQL health check 이후 스키마를 적용하는 일회성 컨테이너입니다. Compose는 Redis Sentinel HA도 시작하지만, 앱 ACL·RediSearch 인덱스와 SQL `redis_server` 행은 별도 초기화가 필요합니다. 상태와 로그를 확인합니다.
 
 ```bash
 docker compose logs mssql-init
@@ -73,11 +74,11 @@ docker compose ps
 
 ```bash
 ./mssql/init-mssql.sh
-./redis/init-redis.sh
+./redis/init-redis-sentinel.sh
 ./elasticsearch/init-elasticsearch.sh
 ```
 
-초기화 스크립트는 `MSSQL_USER`를 `agora_runtime` DML 역할에 넣고 DB 소유자는 `sa`로 둡니다. 서버 스키마 변경은 관리자 연결로만 수행합니다. Sentinel HA를 쓸 때는 Redis `.env`의 `REDIS_SENTINEL_USER`/`REDIS_SENTINEL_PASSWORD`와 BE 환경변수 값을 일치시킵니다. 이 ACL 계정에는 클라이언트의 primary 탐색에 필요한 읽기 전용 Sentinel 조회만 허용하고 failover 변경 명령은 허용하지 않습니다.
+초기화 스크립트는 `MSSQL_USER`를 `agora_runtime` DML 역할에 넣고 DB 소유자는 `sa`로 둡니다. 서버 스키마 변경은 관리자 연결로만 수행합니다. Redis Sentinel의 `REDIS_SENTINEL_USER`/`REDIS_SENTINEL_PASSWORD`와 BE 환경변수 값은 일치시킵니다. 이 ACL 계정에는 클라이언트의 primary 탐색에 필요한 읽기 전용 Sentinel 조회만 허용하고 failover 변경 명령은 허용하지 않습니다.
 
 기존 `ES_LOG_INDEX`가 구체적인 Elasticsearch 인덱스라면 쓰기 alias로 바로 바꾸지 않습니다. BE/C++ 로그 기록을 중지하고 먼저 스냅샷을 만든 다음 아래 마이그레이션을 실행합니다. 스크립트는 문서 수를 확인하고 alias 전환을 원자적으로 수행합니다.
 
@@ -93,7 +94,7 @@ ES_ALLOW_LOG_INDEX_MIGRATION=true ./elasticsearch/migrate-log-index-to-ilm.sh
 
 ## 클러스터 구성
 
-현재 SQL Server 스키마와 Redis 키/JSON 형식은 유지합니다. 클러스터 구성은 기본 단일 노드 Compose와 별도 실행합니다.
+현재 SQL Server 스키마와 Redis 키/JSON 형식은 유지합니다. Redis standalone Compose는 제거했으며 로컬 기본 구성과 운영 배포 모두 Sentinel HA를 사용합니다.
 
 ### MS SQL Server
 
@@ -101,15 +102,15 @@ ES_ALLOW_LOG_INDEX_MIGRATION=true ./elasticsearch/migrate-log-index-to-ilm.sh
 
 ### Redis Stack HA
 
-기존 `FT.SEARCH`/RedisJSON 기능을 유지하기 위해 OSS Redis Cluster 샤딩 대신 Sentinel 기반 primary/replica failover를 제공합니다. Redis OSS Cluster API는 현재 RediSearch 검색 기능과 호환되지 않습니다. Sentinel은 데이터를 샤딩하지 않으며, 기존 Redis 명령과 단일 키 구조를 유지합니다.
+기존 `FT.SEARCH`/RedisJSON 기능을 유지하기 위해 OSS Redis Cluster 샤딩 대신 Sentinel 기반 primary/replica failover를 제공합니다. Redis OSS Cluster API는 현재 RediSearch 검색 기능과 호환되지 않습니다. Sentinel은 데이터를 샤딩하지 않으며, 기존 Redis 명령과 단일 키 구조를 유지합니다. 독립형 Redis 컨테이너를 시작하는 Compose 파일은 저장소에서 제거했습니다.
 
-기존 단일 Redis 데이터는 새 Compose 볼륨에 자동 복사되지 않으므로, [Redis HA 마이그레이션 안내](redis/cluster/README.md)에 따라 RDB를 새 볼륨에 안전하게 가져온 뒤 전환합니다. AOF를 켜기 전에 RDB를 읽도록 1회 기동하고 데이터 확인 후 기본 AOF 설정으로 재기동해야 합니다. 개발/검증용으로 한 호스트에 노드가 함께 올라오므로, 이 구성만으로 호스트 장애까지 보호하지는 않습니다.
+루트 Compose의 로컬 기본값은 Redis primary 1개, replica 2개, Sentinel 3개입니다. 예전 standalone 데이터가 있으면 새 HA primary로 RDB를 가져오는 [레거시 데이터 이관 절차](redis/cluster/README.md#move-legacy-single-node-data-into-ha)를 먼저 완료하세요. 기존 Sentinel Compose 프로젝트의 데이터를 루트 Compose로 옮길 때는 `ops/migrate-local-redis-ha.sh`가 기존 HA 볼륨을 새 프로젝트로 복사하고 원본 볼륨도 보존합니다. 개발/검증용으로 한 호스트에 노드가 함께 올라오므로, 이 구성만으로 호스트 장애까지 보호하지는 않습니다.
 
-실제 호스트 장애 대응은 [Redis 다중 호스트 배포 절차](redis/cluster/README.md)의 `docker-compose.ha-node.yml`을 각 Redis 호스트에서 실행합니다. `docker-compose.sentinel.yml`은 단일 호스트 failover 검증용입니다.
+실제 호스트 장애 대응은 [Redis 다중 호스트 배포 절차](redis/cluster/README.md)의 `docker-compose.ha-node.yml`을 각 Redis 호스트에서 실행합니다. `docker-compose.sentinel.yml`은 루트 Compose가 포함하는 단일 호스트 HA 구성입니다.
 
-단일 Redis에서 HA로 옮길 때는 새 볼륨을 대상으로 하는 [데이터 이관 단계](redis/cluster/README.md#move-the-current-single-node-data)를 사용하세요. 중지된 컨테이너에 `docker cp`만 실행하면 Docker 볼륨에 데이터가 들어가지 않아 기존 DB가 빈 상태로 기동될 수 있습니다.
+단일 Redis에서 HA로 옮길 때는 새 볼륨을 대상으로 하는 [레거시 데이터 이관 단계](redis/cluster/README.md#move-legacy-single-node-data)를 사용하세요. 중지된 컨테이너에 `docker cp`만 실행하면 Docker 볼륨에 데이터가 들어가지 않아 기존 DB가 빈 상태로 기동될 수 있습니다.
 
-이 구성은 Redis 노드 3개와 Sentinel 3개를 사용합니다. `redis_server` 행은 기존 스키마 호환을 위해 초기 endpoint와 논리 서비스 ID를 등록하지만, `REDIS_SENTINELS`가 설정된 BE/C++은 이 행의 IP·포트로 접속하지 않고 Sentinel에서 현재 primary를 조회합니다. C++은 연결을 다시 열 때마다 primary를 재탐색하고, Spring은 캔버스 Redis 문서를 읽을 때 primary를 재탐색합니다. 두 클라이언트 모두 후보 노드의 `ROLE`이 `master`인지 확인합니다. 따라서 failover 뒤 `redis_server` 행을 수동 갱신할 필요가 없습니다. Sentinel 인증이 활성화된 운영 환경에서는 `REDIS_SENTINEL_USER`/`REDIS_SENTINEL_PASSWORD`를 Redis와 BE에 설정하고 일치시켜야 합니다. 개발용 HA Compose는 `agora-redis-ha`를 `internal: true`로 격리하고, Redis 노드·복제·Sentinel 피어·클라이언트 연결에 CA 검증 TLS를 사용하며 평문 포트를 끕니다. 같은 호스트의 BE/C++은 고정 Docker 사설 주소를 Sentinel seed로 사용합니다. 운영에서는 모든 Redis/Sentinel 주소가 앱·복제 호스트에서 도달 가능한 사설망 주소여야 하고, 신뢰되지 않은 망이나 인터넷 경로를 통과하지 않도록 라우팅·방화벽을 확인해야 합니다. 인증서는 각 연결 주소를 SAN에 포함해야 하며, BE/Spring 및 C++에는 신뢰 가능한 CA를 `REDIS_TLS_CA_CERT`로 제공해야 합니다. 개발용 CA는 `./redis/generate-dev-tls.sh`로 생성하며 운영 인증서로 사용하지 않습니다. 운영에서 호스트 장애도 견디려면 Redis 노드와 Sentinel을 서로 다른 호스트에 분산하고, 각 노드가 서로 및 클라이언트에서 접근 가능한 주소를 광고하도록 배포해야 합니다. Redis 저장소 조회·정리 도구는 HA 노드 중 현재 primary를 찾아 실행합니다.
+이 구성은 Redis 노드 3개와 Sentinel 3개를 사용합니다. `redis_server`에는 초기 primary 사설 IP와 논리 서비스 ID 한 건만 활성화하며, BE/C++은 이 행의 IP·포트로 직접 연결하지 않고 필수 `REDIS_SENTINELS`에서 현재 primary를 조회합니다. 연결을 다시 열 때마다 Sentinel을 조회하고 노드의 `ROLE`이 `master`인지 확인하므로 failover 뒤 SQL 행을 수동 갱신할 필요가 없습니다. Sentinel 인증을 쓰는 모든 환경은 `REDIS_SENTINEL_USER`/`REDIS_SENTINEL_PASSWORD`를 Redis와 BE에 함께 설정해야 합니다. 개발용 HA Compose는 `agora-redis-ha`를 `internal: true`로 격리하고 Redis·복제·Sentinel·클라이언트 연결에 CA 검증 TLS를 사용합니다. 같은 호스트의 BE/C++은 고정 Docker 사설 주소를 Sentinel seed로 사용합니다. 운영에서는 모든 Redis/Sentinel 주소가 앱·복제 호스트에서 도달 가능한 사설망 주소여야 하고, 신뢰되지 않은 망이나 인터넷 경로를 통과하지 않도록 라우팅·방화벽을 확인해야 합니다. 인증서는 각 연결 주소를 SAN에 포함해야 하며 BE/C++에는 신뢰 가능한 CA를 `REDIS_TLS_CA_CERT`로 제공합니다. 개발용 CA는 `./redis/generate-dev-tls.sh`로 생성하며 운영 인증서로 사용하지 않습니다. 운영에서 호스트 장애도 견디려면 Redis 노드와 Sentinel을 서로 다른 호스트에 분산하고, 각 노드가 서로 및 클라이언트에서 접근 가능한 주소를 광고하도록 배포해야 합니다. Redis 조회·정리 도구는 Sentinel HA 노드 중 현재 primary를 찾아 실행합니다.
 
 백엔드가 처리할 구체적인 연결 및 장애조치 요구 사항은 [백엔드 클러스터 전환 요구 사항](#백엔드-클러스터-전환-요구-사항)을 참고하세요.
 
@@ -117,16 +118,15 @@ ES_ALLOW_LOG_INDEX_MIGRATION=true ./elasticsearch/migrate-log-index-to-ilm.sh
 
 ### Redis Sentinel 로컬 시험
 
-단일 호스트에서 Redis primary 장애 감지, Sentinel 승격, 복귀 replica 동기화를 확인합니다. 기본 단일 노드 Redis가 포트 `6379`를 사용 중이면 먼저 중지한 뒤 실행합니다.
+단일 호스트에서 Redis primary 장애 감지, Sentinel 승격, 복귀 replica 동기화를 확인합니다. 루트 Compose의 Redis Sentinel HA를 기동하고 초기화한 뒤 실행합니다.
 
 ```bash
-docker compose stop redis-stack
-docker compose --env-file redis/.env -f redis/docker-compose.sentinel.yml up -d
+docker compose up -d
 ./redis/init-redis-sentinel.sh
 ./redis/test-failover.sh
 ```
 
-시험 스크립트는 현재 primary를 찾아 임시 캔버스 JSON을 애플리케이션 ACL 계정으로 저장하고 두 replica에 복제될 때까지 기다립니다. `redis/.env`에 Sentinel 전용 계정이 설정되어 있으면 topology 조회에도 그 인증을 사용합니다. 그 다음 primary 컨테이너를 중지해 자동 failover를 유도하고, 세 Sentinel의 primary 조회 결과와 승격 후 RedisJSON/RediSearch 접근을 확인합니다. 원래 primary를 다시 시작해 3노드가 복구되는지 확인한 뒤 임시 키를 삭제합니다. 이 스크립트는 로컬 `docker-compose.sentinel.yml` 전용이며, 실제 서비스 노드에서 실행하지 않습니다. 자세한 구성은 [Redis Sentinel 시험·마이그레이션 안내](redis/cluster/README.md)를 참고하세요.
+시험 스크립트는 현재 primary를 찾아 임시 캔버스 JSON을 애플리케이션 ACL 계정으로 저장하고 두 replica에 복제될 때까지 기다립니다. `redis/.env`에 Sentinel 전용 계정이 설정되어 있으면 topology 조회에도 그 인증을 사용합니다. 그 다음 primary 컨테이너를 중지해 자동 failover를 유도하고, 세 Sentinel의 primary 조회 결과와 승격 후 RedisJSON/RediSearch 접근을 확인합니다. 원래 primary를 다시 시작해 3노드가 복구되는지 확인한 뒤 임시 키를 삭제합니다. 실제 서비스 노드에서는 실행하지 마세요. 자세한 구성은 [Redis Sentinel 시험·마이그레이션 안내](redis/cluster/README.md)를 참고하세요.
 
 ### SQL Server AG 계획된 시험
 
@@ -174,7 +174,7 @@ sudo pcs status --full
 | `TIMEZONE` | 컨테이너 시간대 |
 | `REDIS_INDEX_NAME` | 기본 `idx:canvas` |
 | `REDIS_KEY_PREFIX` | 기본 `canvas:` |
-| `REDIS_PORT`, `REDIS_BIND_IP`, `REDIS_EXTERNAL_IP`, `REDIS_EXTERNAL_PORT` | Redis 포트와 호스트 바인딩·등록 주소 |
+| `REDIS_PORT`, `REDIS_BIND_IP`, `REDIS_EXTERNAL_IP`, `REDIS_EXTERNAL_PORT` | Redis HA 데이터 포트(6379), 호스트 bind 주소, SQL 등록용 primary 사설 IP, 게시 포트 |
 | `REDIS_INSIGHT_PORT` | Redis Insight 포트 |
 
 ### Elasticsearch — `elasticsearch/.env`
@@ -212,63 +212,32 @@ MS SQL은 관계형 메타데이터와 현재 배정 상태를 보관합니다.
 
 ### 중지한 개별 저장소 재기동
 
-이 checkout의 개별 Compose 배포를 다시 올릴 때는 저장소 루트에서 실행합니다. 아래 프로젝트 이름은 현재 컨테이너의 이름과 데이터 볼륨을 이어 쓰기 위해 고정되어 있습니다. SQL Server와 Elasticsearch를 먼저 올리고, 이어 Redis primary·replica·Sentinel 및 Redis Insight를 함께 시작합니다.
+기본 구성은 저장소 루트의 Compose 프로젝트 `project-agora-db` 하나로 관리하며 Redis는 Sentinel HA만 제공합니다. 예전 `project-agora-db-ha` Compose 프로젝트가 있으면 아래 전환 스크립트가 기존 HA 볼륨을 새 프로젝트 이름으로 복사하고 컨테이너를 옮깁니다. 원본 HA 볼륨은 삭제하지 않습니다. 이전 standalone 컨테이너/볼륨은 이관 도구만 대상으로 하며 새 Compose 구성에는 standalone 서비스가 없습니다. 기존 standalone 볼륨이 있으면 자동으로 버리지 않고 스크립트가 멈추므로, 먼저 [레거시 RDB 이관 절차](redis/cluster/README.md#move-legacy-single-node-data-into-ha)를 완료하세요.
 
-시작 전에 기존 데이터 볼륨이 있는지 확인합니다. Compose는 볼륨이 없으면 빈 볼륨을 새로 만들기 때문에, 아래 SQL/Elasticsearch 볼륨 중 하나라도 없으면 `up -d`로 빈 DB를 기동하지 말고 백업에서 복원할 기존 데이터를 먼저 확인하세요.
+```bash
+./ops/migrate-local-redis-ha.sh
+```
+
+Compose는 이후 Redis Sentinel HA를 포함한 전체 기본 구성을 올립니다. 기존 SQL Server와 Elasticsearch 데이터를 보존해야 하는 호스트에서는 이 볼륨들이 있는지 먼저 확인하고, 없으면 백업을 복원하기 전까지 전체 구성을 시작하지 마세요.
 
 ```bash
 docker volume inspect project-agora-db_mssql_data project-agora-db_es_data
-```
-
-```bash
-docker compose --env-file mssql/.env -p project-agora-db \
-  -f mssql/docker-compose.yml up -d mssql
-
-docker compose --env-file elasticsearch/.env -p project-agora-db \
-  -f elasticsearch/docker-compose.yml up -d elasticsearch
-
-docker compose --env-file redis/.env -p project-agora-db-ha \
-  -f redis/docker-compose.sentinel.yml up -d
-```
-
-Compose 상태와 health check를 확인합니다. Redis replica와 Sentinel은 primary가 healthy가 된 뒤 시작됩니다.
-
-```bash
-docker compose --env-file mssql/.env -p project-agora-db \
-  -f mssql/docker-compose.yml ps
-docker compose --env-file elasticsearch/.env -p project-agora-db \
-  -f elasticsearch/docker-compose.yml ps
-docker compose --env-file redis/.env -p project-agora-db-ha \
-  -f redis/docker-compose.sentinel.yml ps
-```
-
-문제가 있으면 해당 Compose 파일의 로그를 확인합니다.
-
-```bash
-docker compose --env-file mssql/.env -p project-agora-db \
-  -f mssql/docker-compose.yml logs --tail=100 mssql
-docker compose --env-file elasticsearch/.env -p project-agora-db \
-  -f elasticsearch/docker-compose.yml logs --tail=100 elasticsearch
-docker compose --env-file redis/.env -p project-agora-db-ha \
-  -f redis/docker-compose.sentinel.yml logs --tail=100
-```
-
-일반적인 중지는 같은 파일과 프로젝트 이름으로 `stop`을 실행합니다. `stop`과 위의 `up -d`는 named volume의 DB 파일을 보존합니다. 단순 중지 후 재기동에는 `mssql-init`, `init-mssql.sh`, `init-redis-sentinel.sh`, `init-elasticsearch.sh`를 다시 실행하지 않습니다. 새 볼륨을 만들었거나 초기 스키마·계정이 실제로 없을 때만 해당 초기화 절차를 따르세요. `down -v`는 영구 데이터 볼륨을 삭제하므로 재기동 절차에 사용하지 않습니다.
-
-```bash
-# 위에서 시작한 개별 구성 중지 — 데이터 볼륨 유지
-docker compose --env-file mssql/.env -p project-agora-db \
-  -f mssql/docker-compose.yml stop
-docker compose --env-file elasticsearch/.env -p project-agora-db \
-  -f elasticsearch/docker-compose.yml stop
-docker compose --env-file redis/.env -p project-agora-db-ha \
-  -f redis/docker-compose.sentinel.yml stop
-
-# 기본 단일 노드 Compose 구성 상태와 로그
+docker compose up -d
 docker compose ps
-docker compose logs -f mssql redis-stack elasticsearch
+```
 
-# 기본 단일 노드 Compose 구성 중지·재기동 — 데이터 볼륨 유지
+문제가 있으면 서비스 health와 로그를 확인합니다. Redis replica와 Sentinel은 primary가 healthy가 된 뒤 시작됩니다.
+
+```bash
+docker compose ps
+docker compose logs --tail=100 mssql elasticsearch redis-primary redis-replica-1 \
+  redis-replica-2 redis-sentinel-1 redis-sentinel-2 redis-sentinel-3
+```
+
+`docker compose stop`과 `docker compose up -d`는 named volume의 DB 파일을 보존합니다. 단순 중지 후 재기동에는 `mssql-init`, `init-mssql.sh`, `init-elasticsearch.sh`를 다시 실행하지 않습니다. Redis `redis_server` 행이 없거나 Redis HA ACL·색인을 복구해야 할 때 `./redis/init-redis-sentinel.sh`를 반복 실행할 수 있습니다. BE의 `scripts/start-docker-stack.sh`도 HA 스택 기동 후 이 초기화/등록을 자동으로 반복 적용합니다. 새 볼륨을 만들었거나 초기 스키마·인덱스가 실제로 없을 때만 나머지 초기화 절차를 실행하세요. Elasticsearch 계정 동기화만 따로 해야 하면 `./elasticsearch/sync-elasticsearch-users.sh`를 실행할 수 있습니다. `down -v`는 영구 데이터 볼륨을 삭제하므로 재기동 절차에 사용하지 않습니다.
+
+```bash
+# 기본 구성 중지·재기동 — 데이터 볼륨 유지
 docker compose stop
 docker compose up -d
 
@@ -359,7 +328,7 @@ ES_RESTORE_SNAPSHOT=agora-snapshot-20260925 ./elasticsearch/restore-elasticsearc
 
 SQL Server 백업은 AG primary에서 생성하고, Redis HA 백업은 Sentinel이 보고하는 primary의 RDB를 별도 저장소에 복사합니다. 백업 생성만으로 복구 가능성이 증명되지는 않으므로 운영 전 새 환경에서 SQL, Redis, Elasticsearch와 애플리케이션 로그를 복원하고 BE 연결까지 확인합니다.
 
-현재 BE와 C++은 DB 등록 정보로 Redis 서비스의 논리 ID를 찾습니다. 단일 노드에서는 Redis 컨테이너를 시작한 뒤 `./redis/init-redis.sh`를 실행해 Redis 사용자, 색인, `redis_server` 등록을 완료해야 합니다. Sentinel 모드에서는 `REDIS_SENTINELS`와 `REDIS_SENTINEL_MASTER_NAME`이 실제 Redis 접속 대상을 결정합니다. 아래에는 앱에서 유지해야 하는 HA 연결 동작과 남은 운영 검증 항목을 정리했습니다.
+현재 BE와 C++은 SQL의 단일 활성 `redis_server` 행에서 HA 서비스의 논리 ID를 찾고, 실제 노드 연결은 필수 Sentinel seed로 primary를 탐색합니다. `./redis/init-redis-sentinel.sh`는 ACL과 색인을 준비하고 `REDIS_EXTERNAL_IP:REDIS_EXTERNAL_PORT`를 활성 서비스 한 건으로 등록합니다. 이전 행은 외래 키를 보존하며 비활성화합니다. `docker compose up -d`만으로는 이 SQL 등록이 실행되지 않으므로 신규 구성에서는 `python3 ops/configure-db.py deploy-local` 또는 `./redis/init-redis-sentinel.sh`를 실행하세요.
 
 ## 백엔드 클러스터 전환 요구 사항
 
