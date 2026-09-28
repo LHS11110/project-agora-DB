@@ -48,3 +48,6 @@ volumes:
 networks:
   agora-net:
     name: agora-net
+    ipam:
+      config:
+        - subnet: ${AGORA_NET_SUBNET:-172.21.0.0/16}

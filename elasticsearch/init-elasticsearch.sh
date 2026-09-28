@@ -88,7 +88,7 @@ echo -e "\n[OK] 역할($ES_ROLE) 생성 완료"
 
 echo -e "\n=== 2. Elasticsearch 전용 사용자 계정 ($ES_USER) 생성 ==="
 
-curl_es -s -f -u "$ES_SUPER_USER:$ES_SUPER_PASS" -X POST "$ES_HOST/_security/user/$ES_USER" \
+curl_es -s -f -u "$ES_SUPER_USER:$ES_SUPER_PASS" -X PUT "$ES_HOST/_security/user/$ES_USER" \
      -H 'Content-Type: application/json' \
      -d "{
   \"password\": \"$ES_USER_PASS\",
@@ -237,7 +237,7 @@ curl_es -s -f -u "$ES_SUPER_USER:$ES_SUPER_PASS" -X PUT "$ES_HOST/_security/role
 echo -e "\n[OK] 역할($LOG_ROLE)은 로그 인덱스($LOG_INDEX)에 문서 추가 권한만 가집니다"
 
 echo -e "\n=== 5. 로그 전용 사용자($LOG_USER) 생성 ==="
-curl_es -s -f -u "$ES_SUPER_USER:$ES_SUPER_PASS" -X POST "$ES_HOST/_security/user/$LOG_USER" \
+curl_es -s -f -u "$ES_SUPER_USER:$ES_SUPER_PASS" -X PUT "$ES_HOST/_security/user/$LOG_USER" \
      -H 'Content-Type: application/json' \
      -d "{
   \"password\": \"$LOG_USER_PASS\",

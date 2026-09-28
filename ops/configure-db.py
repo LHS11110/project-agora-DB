@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import argparse
 import ipaddress
+import json
 import os
 import re
 import secrets
 import socket
+import shutil
 import stat
 import subprocess
 import sys
@@ -124,6 +126,10 @@ def prepare() -> None:
                 if key.strip() in SECRET_KEYS and PLACEHOLDER.search(value):
                     line = f"{key.strip()}={generated_secret(key.strip())}"
             rewritten.append(line)
+        if env_path in (ENV_FILES["mssql"], ENV_FILES["elasticsearch"]) and not any(
+            re.match(r"^\s*AGORA_NET_SUBNET\s*=", line) for line in rewritten
+        ):
+            rewritten.append("AGORA_NET_SUBNET=172.21.0.0/16")
         atomic_write(env_path, "\n".join(rewritten) + "\n")
 
     for directory in (
@@ -149,11 +155,81 @@ def prepare() -> None:
         if not (redis_tls_dir / "server.crt").is_file():
             subprocess.run([str(ROOT / "redis" / "generate-dev-tls.sh")], cwd=ROOT, check=True)
 
+    local_compose_subnets({service: read_env(path) for service, path in ENV_FILES.items()})
+    repair_stale_local_network()
+
     print("Environment files are present with owner-only permissions.")
     print("Placeholder passwords were replaced with independent random secrets.")
     print("Redis development TLS is prepared when a local Redis environment file is first created.")
     print("Production certificates and snapshot storage must still be provided by the deployment environment.")
     print("Store matching application credentials in the BE secret manager or run sync-backend.")
+
+
+def local_compose_subnets(configs: dict[str, dict[str, str]]) -> tuple[ipaddress.IPv4Network, ipaddress.IPv4Network]:
+    try:
+        app_network = ipaddress.ip_network(
+            configs["mssql"].get("AGORA_NET_SUBNET", "172.21.0.0/16"), strict=True
+        )
+        elastic_network = ipaddress.ip_network(
+            configs["elasticsearch"].get("AGORA_NET_SUBNET", "172.21.0.0/16"), strict=True
+        )
+        redis_network = ipaddress.ip_network(
+            configs["redis"].get("REDIS_HA_SUBNET", "172.20.0.0/16"), strict=True
+        )
+    except ValueError as error:
+        raise SetupError("AGORA_NET_SUBNET and REDIS_HA_SUBNET must be valid CIDR networks.") from error
+    if app_network.version != 4 or elastic_network.version != 4 or redis_network.version != 4:
+        raise SetupError("Local Docker Compose networks must use IPv4 CIDRs.")
+    if app_network != elastic_network:
+        raise SetupError("mssql/.env and elasticsearch/.env must use the same AGORA_NET_SUBNET.")
+    if app_network.overlaps(redis_network):
+        raise SetupError("AGORA_NET_SUBNET and REDIS_HA_SUBNET overlap. Choose separate Docker subnets.")
+    return app_network, redis_network
+
+
+def repair_stale_local_network() -> None:
+    """Remove only an unused Compose-owned app network with the old auto-assigned CIDR."""
+    if shutil.which("docker") is None:
+        return
+    inspect = subprocess.run(
+        ["docker", "network", "inspect", "agora-net", "--format", "{{json .}}"],
+        capture_output=True, text=True,
+    )
+    if inspect.returncode:
+        # Environment preparation also works before Docker is installed or started.
+        return
+    try:
+        network = json.loads(inspect.stdout)
+        existing_subnets = {
+            item.get("Subnet") for item in network.get("IPAM", {}).get("Config", [])
+            if item.get("Subnet")
+        }
+        desired_subnet = str(ipaddress.ip_network(
+            read_env(ENV_FILES["mssql"]).get("AGORA_NET_SUBNET", "172.21.0.0/16"), strict=True
+        ))
+    except (json.JSONDecodeError, ValueError, TypeError) as error:
+        raise SetupError("Could not inspect the existing Docker network agora-net safely.") from error
+    if desired_subnet in existing_subnets:
+        return
+
+    project = network.get("Labels", {}).get("com.docker.compose.project")
+    endpoints = network.get("Containers") or {}
+    if endpoints:
+        raise SetupError(
+            "Docker network agora-net uses an old subnet and still has attached containers. "
+            "Stop the backend with ./scripts/backend-docker.sh down, then run "
+            "docker compose down (without -v) in this repository and retry prepare."
+        )
+    if project != "project-agora-db":
+        raise SetupError(
+            "Docker network agora-net has an unexpected owner and subnet. "
+            "It was left untouched; inspect it before changing the network."
+        )
+
+    removed = subprocess.run(["docker", "network", "rm", "agora-net"], capture_output=True, text=True)
+    if removed.returncode:
+        raise SetupError("Could not remove the unused stale Docker network agora-net safely.")
+    print("Removed the unused stale agora-net; Compose will recreate it with the configured subnet.")
 
 
 def require_env_files() -> dict[str, dict[str, str]]:
@@ -336,6 +412,7 @@ def parse_sentinels(value: str) -> list[tuple[str, int]]:
 
 def validate(args: argparse.Namespace) -> None:
     configs = require_env_files()
+    local_compose_subnets(configs)
     production = args.profile == "production"
     validate_secrets(configs, production)
 

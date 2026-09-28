@@ -179,6 +179,7 @@ services:
     networks:
       redis-ha:
         ipv4_address: ${REDIS_INSIGHT_IP:-172.20.0.8}
+      redis-insight-access: {}
 
 volumes:
   redis_primary_data:
@@ -196,3 +197,6 @@ networks:
     ipam:
       config:
         - subnet: ${REDIS_HA_SUBNET:-172.20.0.0/16}
+  redis-insight-access:
+    name: agora-redis-insight-access
+    driver: bridge

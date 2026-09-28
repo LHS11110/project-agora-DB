@@ -10,10 +10,10 @@ Project Agora의 저장소 인프라입니다. 기본 Docker Compose 구성은 �
 | --- | --- | --- | --- |
 | MS SQL Server 2022 CU27 | 사용자, 세션, 캔버스 배정, C++·Redis 서버 메타데이터 | `agora-mssql` | `1433` |
 | Redis 8.6.7 Sentinel HA | 활성 캔버스 RedisJSON, RediSearch | `agora-redis-primary`, replicas 2개, Sentinels 3개 | `6379`, `26379–26381` |
-| Redis Insight 3.8.0 | Redis 관리 UI | Compose가 프로젝트별 이름을 생성 | `8001` |
+| Redis Insight 3.8.0 | Redis 관리 UI | Compose가 프로젝트별 이름을 생성 | `127.0.0.1:8001` |
 | Elasticsearch 8.19.22 | 캔버스 문서, 백엔드 애플리케이션 로그 | `agora-elasticsearch` | `9200` |
 
-MSSQL과 Elasticsearch는 Compose 네트워크 `agora-net`을 공유하고 Redis 노드와 Sentinels는 내부 전용 `agora-redis-ha` 네트워크를 사용합니다. 기본값은 호스트의 loopback에만 서비스를 바인딩합니다. 루트 Compose는 같은 호스트에서 Redis primary·replica·Sentinel failover를 제공하며, 호스트 장애까지 견디는 운영 구성은 여러 호스트에 별도 배포해야 합니다.
+MSSQL과 Elasticsearch는 Compose 네트워크 `agora-net`을 공유하고 Redis 노드와 Sentinels는 내부 전용 `agora-redis-ha` 네트워크를 사용합니다. Redis Insight는 Redis HA 네트워크와 별도의 관리 네트워크에 연결되며, UI는 기본적으로 호스트 loopback의 `127.0.0.1:8001`에서만 접근할 수 있습니다. 루트 Compose는 같은 호스트에서 Redis primary·replica·Sentinel failover를 제공하며, 호스트 장애까지 견디는 운영 구성은 여러 호스트에 별도 배포해야 합니다.
 
 ```mermaid
 flowchart LR
