@@ -152,7 +152,14 @@ printf 'Starting the default Redis Sentinel HA services and waiting for health..
 docker compose --env-file "$REDIS_ENV" -p "$CURRENT_PROJECT" -f "$COMPOSE_FILE" \
     up -d --wait --wait-timeout "$WAIT_SECONDS" \
     redis-primary redis-replica-1 redis-replica-2 \
-    redis-sentinel-1 redis-sentinel-2 redis-sentinel-3 redis-insight
+    redis-sentinel-1 redis-sentinel-2 redis-sentinel-3
+
+# Create the fixed-address Redis HA network before Docker allocates an
+# automatic subnet for Redis Insight's access network. Creating both networks
+# together can let Docker assign the same subnet to both.
+printf 'Starting Redis Insight after the Redis HA network is established...\n'
+docker compose --env-file "$REDIS_ENV" -p "$CURRENT_PROJECT" -f "$COMPOSE_FILE" \
+    up -d --wait --wait-timeout "$WAIT_SECONDS" redis-insight
 
 rm -f "$MIGRATION_MARKER"
 printf 'Redis Sentinel HA is running under Compose project %s.\n' "$CURRENT_PROJECT"

@@ -163,6 +163,11 @@ REDIS_SENTINEL_MASTER_NAME = configured(
 )
 REDIS_SENTINEL_USER = configured("REDIS_SENTINEL_USER", redis_env, "")
 REDIS_SENTINEL_PASS = configured("REDIS_SENTINEL_PASSWORD", redis_env, "")
+REDIS_TLS_ENABLED = configured("REDIS_TLS_ENABLED", redis_env, "false").lower() == "true"
+REDIS_TLS_CA_CERT = (
+    configured("REDIS_TLS_CA_CERT_HOST", redis_env, "")
+    or configured("REDIS_TLS_CA_CERT", redis_env, "")
+)
 
 results = []
 
@@ -552,10 +557,23 @@ def test_redis():
                 "socket_connect_timeout": 5,
                 "socket_timeout": 10,
             }
+            redis_tls_options = {}
+            if REDIS_TLS_ENABLED:
+                if not REDIS_TLS_CA_CERT or not Path(REDIS_TLS_CA_CERT).is_file():
+                    raise RuntimeError(
+                        "REDIS_TLS_ENABLED=true requires a readable REDIS_TLS_CA_CERT_HOST"
+                    )
+                redis_tls_options = {
+                    "ssl": True,
+                    "ssl_ca_certs": REDIS_TLS_CA_CERT,
+                    "ssl_cert_reqs": "required",
+                }
+                common_options.update(redis_tls_options)
             if REDIS_SENTINELS:
                 if Sentinel is None:
                     raise RuntimeError("redis-py Sentinel support is required when REDIS_SENTINELS is set")
                 sentinel_options = {"socket_timeout": 5}
+                sentinel_options.update(redis_tls_options)
                 if REDIS_SENTINEL_USER:
                     sentinel_options.update(
                         {"username": REDIS_SENTINEL_USER, "password": REDIS_SENTINEL_PASS}
