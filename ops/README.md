@@ -26,7 +26,7 @@ python3 ops/configure-db.py validate --profile development
 python3 ops/configure-db.py deploy-local
 ```
 
-`prepare`는 누락된 `.env`를 `.env.example`에서 만들고 placeholder 비밀번호를 서로 다른 난수로 바꿉니다. 이미 설정된 비밀번호는 유지합니다. 파일 권한은 `0600`으로 설정하며 인증서는 발급하지 않습니다. 로컬 앱 네트워크 `AGORA_NET_SUBNET` 기본값은 `172.21.0.0/16`, Redis HA `REDIS_HA_SUBNET` 기본값은 `172.20.0.0/16`이며 겹치지 않아야 합니다. `prepare`는 이전 Compose 실행이 남긴 빈 `agora-net`이 잘못된 자동 할당 대역을 쓰면, 현재 Compose 프로젝트 소유인지와 연결된 컨테이너가 없는지를 확인한 뒤에만 제거합니다. 활성 네트워크는 제거하지 않으며, 필요한 중지 절차를 오류 메시지로 안내합니다. `deploy-local`은 기본 Compose 프로젝트에서 Redis Sentinel HA와 SQL·Elasticsearch를 시작하고 health check 및 초기화를 수행합니다.
+`prepare`는 누락된 `.env`를 `.env.example`에서 만들고 placeholder 비밀번호를 서로 다른 난수로 바꿉니다. 이미 설정된 비밀번호는 유지합니다. 파일 권한은 `0600`으로 설정하며 새 로컬 환경에 개발용 Redis·Elasticsearch 인증서를 준비합니다. 운영 인증서는 별도로 제공해야 합니다. 로컬 앱 네트워크 `AGORA_NET_SUBNET` 기본값은 `172.21.0.0/16`, Redis HA `REDIS_HA_SUBNET` 기본값은 `172.20.0.0/16`이며 겹치지 않아야 합니다. `prepare`는 이전 Compose 실행이 남긴 빈 `agora-net`이 잘못된 자동 할당 대역을 쓰면, 현재 Compose 프로젝트 소유인지와 연결된 컨테이너가 없는지를 확인한 뒤에만 제거합니다. 활성 네트워크는 제거하지 않으며, 필요한 중지 절차를 오류 메시지로 안내합니다. `deploy-local`은 기본 Compose 프로젝트에서 Redis Sentinel HA와 SQL·Elasticsearch를 시작하고 health check 및 초기화를 수행합니다.
 
 ## 운영 사전 검사
 
@@ -161,3 +161,5 @@ sudo ./ops/install-backup-timer.sh /mnt/agora-backups
 ## 남는 인프라 작업
 
 스크립트만으로 인증기관에서 운영 인증서를 발급하거나, 클라우드 방화벽을 열거나, Pacemaker quorum/fencing을 증명할 수는 없습니다. 다중 호스트 장애 전환 및 BE/C++ 재연결, 새 환경 복원과 저장소 수명주기 정책은 [운영 전 체크리스트](../PRE_PRODUCTION_CHECKLIST.md)의 대상 환경 항목을 완료하고 기록해야 합니다.
+
+`prepare-storage`는 Docker의 Elasticsearch 이미지를 통해 snapshot 권한과 전용 TLS 볼륨의 Linux UID/GID를 적용하며 호스트 sudo를 요구하지 않습니다. 호스트 개인 키의 소유권은 변경하지 않습니다. 새 로컬 준비 시 Redis·Elasticsearch 개발용 TLS가 함께 생성됩니다. macOS LibreSSL에서도 인증서 SAN 검증이 가능하며 운영 TLS 검증은 계속 유지됩니다.

@@ -34,7 +34,7 @@ chmod 0755 "$ROOT_DIR"
 chmod 0755 "$SERVER_DIR"
 
 SAN="DNS:localhost,DNS:redis-primary,DNS:redis-replica-1,DNS:redis-replica-2,DNS:agora-redis-primary,DNS:agora-redis-replica-1,DNS:agora-redis-replica-2,IP:127.0.0.1"
-declare -A seen_ip=()
+seen_ips=","
 for ip in \
   "${REDIS_PRIMARY_IP:-172.20.0.2}" \
   "${REDIS_REPLICA_1_IP:-172.20.0.7}" \
@@ -42,9 +42,9 @@ for ip in \
   "${REDIS_SENTINEL_1_IP:-172.20.0.6}" \
   "${REDIS_SENTINEL_2_IP:-172.20.0.3}" \
   "${REDIS_SENTINEL_3_IP:-172.20.0.4}"; do
-  if [[ "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && [ -z "${seen_ip[$ip]:-}" ]; then
+  if [[ "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && [[ "$seen_ips" != *",$ip,"* ]]; then
     SAN+=" ,IP:$ip"
-    seen_ip[$ip]=1
+    seen_ips+="$ip,"
   fi
 done
 SAN="${SAN// /}"

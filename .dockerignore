@@ -1,0 +1,12 @@
+.git
+.env
+.env.*
+**/.env
+**/.env.*
+**/tls
+**/certs
+**/.dev-tls
+**/snapshots
+**/backups
+**/*.key
+**/*.pem

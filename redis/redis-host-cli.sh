@@ -39,7 +39,7 @@ for seed in "${SEEDS[@]}"; do
   else
     continue
   fi
-  if MASTER_INFO="$(REDISCLI_AUTH="$REDIS_SENTINEL_PASSWORD" redis-cli "${TLS_ARGS[@]}" \
+  if MASTER_INFO="$(REDISCLI_AUTH="$REDIS_SENTINEL_PASSWORD" redis-cli ${TLS_ARGS[@]+"${TLS_ARGS[@]}"} \
     --raw -h "$SENTINEL_HOST" -p "$SENTINEL_PORT" --user "$REDIS_SENTINEL_USER" \
     --no-auth-warning SENTINEL get-master-addr-by-name "$REDIS_SENTINEL_MASTER_NAME" 2>/dev/null)"; then
     MASTER_HOST="$(printf '%s\n' "$MASTER_INFO" | sed -n '1p' | tr -d '\r')"
@@ -57,11 +57,11 @@ REDIS_PORT="$MASTER_PORT"
 case "$MODE" in
   admin)
     : "${REDIS_PASSWORD:?REDIS_PASSWORD is required}"
-    REDISCLI_AUTH="$REDIS_PASSWORD" exec redis-cli "${TLS_ARGS[@]}" -h "$REDIS_HOST" -p "$REDIS_PORT" "$@"
+    REDISCLI_AUTH="$REDIS_PASSWORD" exec redis-cli ${TLS_ARGS[@]+"${TLS_ARGS[@]}"} -h "$REDIS_HOST" -p "$REDIS_PORT" "$@"
     ;;
   app)
     : "${REDIS_USER_PASSWORD:?REDIS_USER_PASSWORD is required}"
-    REDISCLI_AUTH="$REDIS_USER_PASSWORD" exec redis-cli "${TLS_ARGS[@]}" -h "$REDIS_HOST" -p "$REDIS_PORT" \
+    REDISCLI_AUTH="$REDIS_USER_PASSWORD" exec redis-cli ${TLS_ARGS[@]+"${TLS_ARGS[@]}"} -h "$REDIS_HOST" -p "$REDIS_PORT" \
       --user "${REDIS_USER:-agora_user}" --no-auth-warning "$@"
     ;;
   *) echo "Unsupported Redis host CLI mode: $MODE" >&2; exit 2 ;;

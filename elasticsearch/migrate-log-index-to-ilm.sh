@@ -29,7 +29,7 @@ REPOSITORY="${ES_SNAPSHOT_REPOSITORY:-agora-filesystem}"
 NEW_INDEX="${LOG_INDEX}-000001"
 ES_CURL_TLS_ARGS=()
 if [ -n "${ES_CA_CERT:-}" ]; then ES_CURL_TLS_ARGS+=(--cacert "$ES_CA_CERT"); fi
-curl_es() { es_curl_authenticated elastic "$ELASTIC_PASSWORD" "${ES_CURL_TLS_ARGS[@]}" "$@"; }
+curl_es() { es_curl_authenticated elastic "$ELASTIC_PASSWORD" ${ES_CURL_TLS_ARGS[@]+"${ES_CURL_TLS_ARGS[@]}"} "$@"; }
 
 ALIAS_STATUS=$(curl_es -sS -f -o /dev/null -w '%{http_code}' "$ES_URL/_alias/$LOG_INDEX" || true)
 if [ "$ALIAS_STATUS" = "200" ]; then

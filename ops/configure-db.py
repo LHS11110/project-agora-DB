@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import ipaddress
 import json
 import os
 import re
 import secrets
+import shlex
 import socket
 import shutil
 import stat
@@ -54,7 +56,10 @@ def read_env(path: Path) -> dict[str, str]:
         key = key.strip()
         value = value.strip()
         if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-            value = value[1:-1]
+            parsed = shlex.split(value, comments=False, posix=True)
+            if len(parsed) != 1:
+                raise SetupError(f"Invalid quoted environment setting: {key}")
+            value = parsed[0]
         result[key] = value
     return result
 
@@ -80,6 +85,14 @@ def atomic_write(path: Path, content: str, mode: int = 0o600) -> None:
         raise
 
 
+def env_value(value: str) -> str:
+    if any(character in value for character in ("\n", "\r", "$", "`")):
+        raise SetupError("Generated environment settings cannot contain shell expansion or line breaks.")
+    if not value or re.fullmatch(r"[A-Za-z0-9_./:@,+%!=-]+", value):
+        return value
+    return json.dumps(value, ensure_ascii=False)
+
+
 def update_env_file(path: Path, desired: dict[str, str]) -> None:
     if path.is_symlink() or not path.is_file():
         raise SetupError(f"Missing or unsafe environment file: {path}")
@@ -91,26 +104,27 @@ def update_env_file(path: Path, desired: dict[str, str]) -> None:
         if match and match.group(1) in desired:
             key = match.group(1)
             if key not in seen:
-                output.append(f"{key}={desired[key]}")
+                output.append(f"{key}={env_value(desired[key])}")
                 seen.add(key)
             continue
         output.append(line)
     for key, value in desired.items():
         if key not in seen:
-            output.append(f"{key}={value}")
+            output.append(f"{key}={env_value(value)}")
     if any("\n" in value or "\r" in value for value in desired.values()):
         raise SetupError(f"A setting for {path} contains an unsupported line break.")
     atomic_write(path, "\n".join(output) + "\n")
 
 
 def generated_secret(key: str) -> str:
-    token = secrets.token_hex(32)
+    token = hashlib.sha256(secrets.token_bytes(64)).hexdigest()
     # Both SQL logins use CHECK_POLICY and need three character classes.
     return f"A9!{token}" if key in {"MSSQL_SA_PASSWORD", "MSSQL_PASSWORD"} else token
 
 
 def prepare() -> None:
     redis_env_was_missing = not ENV_FILES["redis"].exists()
+    elastic_env_was_missing = not ENV_FILES["elasticsearch"].exists()
     for env_path in ENV_FILES.values():
         if env_path.is_symlink():
             raise SetupError(f"Refusing to modify symlinked environment file: {env_path}")
@@ -155,12 +169,24 @@ def prepare() -> None:
         if not (redis_tls_dir / "server.crt").is_file():
             subprocess.run([str(ROOT / "redis" / "generate-dev-tls.sh")], cwd=ROOT, check=True)
 
+    if elastic_env_was_missing:
+        elastic_cert_dir = ROOT / "elasticsearch" / "certs"
+        update_env_file(ENV_FILES["elasticsearch"], {
+            "ES_HTTP_TLS_ENABLED": "true",
+            "ES_SCHEME": "https",
+            "ES_TLS_CERTS_DIR": str(elastic_cert_dir),
+            "ES_CA_CERT": str(elastic_cert_dir / "ca.crt"),
+        })
+        if not (elastic_cert_dir / "http.crt").is_file():
+            subprocess.run([str(ROOT / "elasticsearch" / "generate-dev-tls.sh")], cwd=ROOT, check=True)
+
     local_compose_subnets({service: read_env(path) for service, path in ENV_FILES.items()})
     repair_stale_local_network()
 
     print("Environment files are present with owner-only permissions.")
     print("Placeholder passwords were replaced with independent random secrets.")
-    print("Redis development TLS is prepared when a local Redis environment file is first created.")
+    print("Redis and Elasticsearch development TLS are prepared when their environment files are first created.")
+    print("Run prepare-storage before starting Docker to make the ES key and snapshot directory readable by the container UID.")
     print("Production certificates and snapshot storage must still be provided by the deployment environment.")
     print("Store matching application credentials in the BE secret manager or run sync-backend.")
 
@@ -382,15 +408,45 @@ def verify_certificate(cert: Path, key: Path, ca: Path, hosts: list[str], label:
     if expiry.returncode:
         raise SetupError(f"{label} certificate expires within 30 days or is already expired.")
 
+    # macOS LibreSSL lacks x509 -checkip/-checkhost. Parse SANs after verifying
+    # the chain/key/expiry above; never fall back to an unverified CN.
+    certificate_text = subprocess.run(
+        ["openssl", "x509", "-in", str(cert), "-noout", "-text"],
+        capture_output=True, text=True, check=True,
+    ).stdout
     for host in dict.fromkeys(h for h in hosts if h):
-        try:
-            ipaddress.ip_address(host)
-            check = ["openssl", "x509", "-in", str(cert), "-noout", "-checkip", host]
-        except ValueError:
-            check = ["openssl", "x509", "-in", str(cert), "-noout", "-checkhost", host]
-        result = subprocess.run(check, capture_output=True)
-        if result.returncode:
+        if not certificate_san_matches(certificate_text, host):
             raise SetupError(f"{label} certificate SAN does not match {host}.")
+
+
+def certificate_san_matches(certificate_text: str, host: str) -> bool:
+    match = re.search(r"X509v3 Subject Alternative Name:[^\n]*\n([^\n]+)", certificate_text)
+    if not match:
+        return False
+    entries = [entry.strip() for entry in match.group(1).split(",")]
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        hostname = host.rstrip(".").encode("idna").decode("ascii").lower()
+        for entry in entries:
+            if not entry.startswith("DNS:"):
+                continue
+            pattern = entry[4:].rstrip(".").lower()
+            if pattern == hostname:
+                return True
+            if pattern.startswith("*.") and pattern.count("*") == 1:
+                labels = hostname.split(".")
+                if len(labels) == len(pattern.split(".")) and ".".join(labels[1:]) == pattern[2:]:
+                    return True
+        return False
+    for entry in entries:
+        if entry.startswith("IP Address:"):
+            try:
+                if ipaddress.ip_address(entry[11:]) == address:
+                    return True
+            except ValueError:
+                continue
+    return False
 
 
 def parse_sentinels(value: str) -> list[tuple[str, int]]:
@@ -434,6 +490,11 @@ def validate(args: argparse.Namespace) -> None:
         compose_config(*compose_args, env=preflight_env)
 
     if not production:
+        elastic = configs["elasticsearch"]
+        if elastic.get("ES_HTTP_TLS_ENABLED", "false").lower() == "true":
+            cert_dir = path_from_env(ROOT / "elasticsearch", elastic.get("ES_TLS_CERTS_DIR", "./certs"))
+            verify_certificate(cert_dir / "http.crt", cert_dir / "http.key", cert_dir / "ca.crt",
+                               [elastic.get("ES_EXTERNAL_IP", "127.0.0.1")], "Elasticsearch")
         redis = configs["redis"]
         if redis.get("REDIS_TLS_ENABLED", "false").lower() == "true":
             redis_dir = path_from_env(ROOT / "redis", redis.get("REDIS_TLS_CERTS_DIR", "./tls/server")).resolve()
@@ -705,13 +766,13 @@ def sync_backend(args: argparse.Namespace) -> None:
         if match and match.group(1) in desired:
             key = match.group(1)
             if key not in seen:
-                output.append(f"{key}={desired[key]}")
+                output.append(f"{key}={env_value(desired[key])}")
                 seen.add(key)
             continue
         output.append(line)
     for key, value in desired.items():
         if key not in seen:
-            output.append(f"{key}={value}")
+            output.append(f"{key}={env_value(value)}")
     atomic_write(backend_path, "\n".join(output) + "\n")
     print(f"Updated {len(desired)} DB-related settings in {backend_path}; unrelated backend settings were preserved.")
     print("Backend .env permissions are now 0600. Secret values were not displayed.")

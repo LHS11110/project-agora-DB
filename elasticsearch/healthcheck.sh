@@ -12,4 +12,4 @@ else
   ES_URL=http://localhost:9200/_cluster/health
 fi
 
-es_curl_authenticated elastic "$ELASTIC_PASSWORD" "${CURL_ARGS[@]}" "$ES_URL" >/dev/null
+es_curl_authenticated elastic "$ELASTIC_PASSWORD" ${CURL_ARGS[@]+"${CURL_ARGS[@]}"} "$ES_URL" >/dev/null

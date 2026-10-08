@@ -53,22 +53,39 @@ run_on_local_primary() {
   return 1
 }
 
+use_local_docker() {
+  command -v docker >/dev/null 2>&1 || return 1
+  local container
+  for container in agora-redis-primary agora-redis-replica-1 agora-redis-replica-2 agora-redis-node; do
+    if [ "$(docker inspect -f '{{.State.Running}}' "$container" 2>/dev/null || true)" = true ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 run_admin_cli() {
-  if command -v redis-cli >/dev/null 2>&1; then
+  if use_local_docker; then
+    "$SCRIPT_DIR/redis-ha-cli.sh" "$@"
+  elif command -v redis-cli >/dev/null 2>&1; then
     "$SCRIPT_DIR/redis-host-cli.sh" admin "$@"
   else
     "$SCRIPT_DIR/redis-ha-cli.sh" "$@"
   fi
 }
 run_user_cli() {
-  if command -v redis-cli >/dev/null 2>&1; then
+  if use_local_docker; then
+    run_on_local_primary app "$@"
+  elif command -v redis-cli >/dev/null 2>&1; then
     "$SCRIPT_DIR/redis-host-cli.sh" app "$@"
   else
     run_on_local_primary app "$@"
   fi
 }
 provision_app_acl() {
-  if command -v redis-cli >/dev/null 2>&1; then
+  if use_local_docker; then
+    run_on_local_primary provision-app
+  elif command -v redis-cli >/dev/null 2>&1; then
     printf '>%s' "$REDIS_USER_PASS" | "$SCRIPT_DIR/redis-host-cli.sh" admin -x \
       ACL SETUSER "$REDIS_USER" reset on \
       "~${REDIS_KEY_PREFIX}*" "~${REDIS_INDEX_NAME}*" resetchannels -@all \

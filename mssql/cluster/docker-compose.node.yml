@@ -3,6 +3,7 @@
 services:
   mssql-ag-node:
     image: mcr.microsoft.com/mssql/server:2022-CU27-ubuntu-22.04
+    platform: linux/amd64
     hostname: ${MSSQL_NODE_HOSTNAME:?MSSQL_NODE_HOSTNAME is required (15 characters or fewer)}
     restart: unless-stopped
     environment:

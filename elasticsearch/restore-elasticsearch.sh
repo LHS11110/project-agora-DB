@@ -21,7 +21,7 @@ INDEX_NAME="${ES_INDEX:-canvas}"
 LOG_INDEX="${ES_LOG_INDEX:-agora-logs}"
 ES_CURL_TLS_ARGS=()
 if [ -n "${ES_CA_CERT:-}" ]; then ES_CURL_TLS_ARGS+=(--cacert "$ES_CA_CERT"); fi
-curl_es() { es_curl_authenticated elastic "$ELASTIC_PASSWORD" "${ES_CURL_TLS_ARGS[@]}" "$@"; }
+curl_es() { es_curl_authenticated elastic "$ELASTIC_PASSWORD" ${ES_CURL_TLS_ARGS[@]+"${ES_CURL_TLS_ARGS[@]}"} "$@"; }
 
 # Restore into an empty recovery deployment. This script never deletes or
 # overwrites existing indices; resolve naming conflicts before using it.

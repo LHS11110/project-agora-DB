@@ -135,12 +135,12 @@ echo -e "${CYAN}================================================================
 run_query() {
   local sql="$1"
   if command -v sqlcmd &> /dev/null; then
-    SQLCMDPASSWORD="$MSSQL_PASS" sqlcmd -S "$MSSQL_HOST,$MSSQL_PORT" -U "$MSSQL_USER" "${SQLCMD_TLS_ARGS[@]}" -b -I -d "$MSSQL_DB" -Q "$sql" -W 2>&1
+    SQLCMDPASSWORD="$MSSQL_PASS" sqlcmd -S "$MSSQL_HOST,$MSSQL_PORT" -U "$MSSQL_USER" ${SQLCMD_TLS_ARGS[@]+"${SQLCMD_TLS_ARGS[@]}"} -b -I -d "$MSSQL_DB" -Q "$sql" -W 2>&1
   elif [[ "$MSSQL_HOST" == "127.0.0.1" || "$MSSQL_HOST" == "localhost" || "$MSSQL_HOST" == "::1" ]] \
       && docker inspect --format '{{.State.Running}}' agora-mssql 2>/dev/null | grep -q '^true$'; then
     docker exec agora-mssql /bin/bash -lc \
       'export SQLCMDPASSWORD="$MSSQL_PASSWORD"; exec /opt/mssql-tools18/bin/sqlcmd "$@"' \
-      sqlcmd -S localhost -U "$MSSQL_USER" "${SQLCMD_TLS_ARGS[@]}" -b -I -d "$MSSQL_DB" -Q "$sql" -W 2>&1
+      sqlcmd -S localhost -U "$MSSQL_USER" ${SQLCMD_TLS_ARGS[@]+"${SQLCMD_TLS_ARGS[@]}"} -b -I -d "$MSSQL_DB" -Q "$sql" -W 2>&1
   else
     echo "[ERROR] sqlcmd is required for the configured SQL Server endpoint $MSSQL_HOST:$MSSQL_PORT. Docker fallback is only available for a running local agora-mssql container." >&2
     return 127

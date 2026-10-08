@@ -47,7 +47,7 @@ curl_es() {
   else
     credentials="elastic:$ELASTIC_PASSWORD"
   fi
-  es_curl_authenticated "${credentials%%:*}" "${credentials#*:}" "${ES_CURL_ARGS[@]}" "$@"
+  es_curl_authenticated "${credentials%%:*}" "${credentials#*:}" ${ES_CURL_ARGS[@]+"${ES_CURL_ARGS[@]}"} "$@"
 }
 
 ES_INDEX="${ES_INDEX:-canvas}"
@@ -125,4 +125,6 @@ printf '%s' "$log_user_payload" | curl_es -s -f -u "elastic:$ELASTIC_PASSWORD" \
 
 # Confirm the canvas account can reach the configured index without reading documents.
 curl_es -s -f -u "$ES_USER:$ES_USER_PASSWORD" "$ES_HOST/$ES_INDEX/_count" >/dev/null
+# Authenticate the dedicated log writer too; cluster health only checks elastic.
+curl_es -s -f -u "$ES_LOG_USER:$ES_LOG_USER_PASSWORD" "$ES_HOST/_security/_authenticate" >/dev/null
 echo "[OK] Elasticsearch canvas and log writer accounts match elasticsearch/.env."

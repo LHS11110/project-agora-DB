@@ -11,9 +11,13 @@ source "$SCRIPT_DIR/curl-auth.sh"
 
 # .env 파일이 있으면 로드
 if [ -f "$SCRIPT_DIR/.env" ]; then
-  export $(grep -v '^#' "$SCRIPT_DIR/.env" | xargs)
+  set -a
+  source "$SCRIPT_DIR/.env"
+  set +a
 elif [ -f .env ]; then
-  export $(grep -v '^#' .env | xargs)
+  set -a
+  source .env
+  set +a
 fi
 
 ES_RAW_IP="${ES_EXTERNAL_IP:-127.0.0.1}"
@@ -39,7 +43,7 @@ curl_es() {
   else
     credentials="$ES_SUPER_USER:$ES_SUPER_PASS"
   fi
-  es_curl_authenticated "${credentials%%:*}" "${credentials#*:}" "${ES_CURL_ARGS[@]}" "$@"
+  es_curl_authenticated "${credentials%%:*}" "${credentials#*:}" ${ES_CURL_ARGS[@]+"${ES_CURL_ARGS[@]}"} "$@"
 }
 ES_SUPER_USER="elastic"
 : "${ELASTIC_PASSWORD:?ELASTIC_PASSWORD must be set in elasticsearch/.env}"

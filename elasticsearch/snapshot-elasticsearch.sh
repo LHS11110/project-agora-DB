@@ -22,7 +22,7 @@ LOG_INDEX="${ES_LOG_INDEX:-agora-logs}"
 SNAPSHOT_NAME="agora-manual-$(date -u +%Y%m%dt%H%M%Sz)"
 ES_CURL_TLS_ARGS=()
 if [ -n "${ES_CA_CERT:-}" ]; then ES_CURL_TLS_ARGS+=(--cacert "$ES_CA_CERT"); fi
-curl_es() { es_curl_authenticated elastic "$ELASTIC_PASSWORD" "${ES_CURL_TLS_ARGS[@]}" "$@"; }
+curl_es() { es_curl_authenticated elastic "$ELASTIC_PASSWORD" ${ES_CURL_TLS_ARGS[@]+"${ES_CURL_TLS_ARGS[@]}"} "$@"; }
 
 curl_es -sS -f -X PUT "$ES_URL/_snapshot/$REPOSITORY" \
   -H 'Content-Type: application/json' \

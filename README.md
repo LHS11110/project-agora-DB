@@ -40,7 +40,7 @@ python3 ops/configure-db.py validate --profile development
 python3 ops/configure-db.py prepare-storage
 ```
 
-운영 적용 명령과 백업 예약 설정은 [DB 운영 자동화 안내](ops/README.md)를 참고하세요. `prepare`는 인증서를 발급하거나 운영 주소를 추측하지 않습니다. 운영용 TLS 인증서·사설 IP·외부 백업 마운트를 준비한 뒤 `validate --profile production`을 통과시켜야 합니다.
+운영 적용 명령과 백업 예약 설정은 [DB 운영 자동화 안내](ops/README.md)를 참고하세요. `prepare`는 새 로컬 환경에 개발용 Redis·Elasticsearch 인증서를 준비하며 운영 인증서를 발급하거나 운영 주소를 추측하지 않습니다. 운영용 TLS 인증서·사설 IP·외부 백업 마운트를 준비한 뒤 `validate --profile production`을 통과시켜야 합니다.
 
 | 파일 | 필수 비밀값 |
 | --- | --- |
@@ -376,3 +376,26 @@ tests/          저장소 통합 테스트
 ## 라이선스
 
 이 저장소는 Project Agora의 일부이며 [MIT License](LICENSE)를 따릅니다.
+
+## 로컬 초기화의 OS 및 경로 의존성
+
+macOS 기본 Bash 3.2/LibreSSL과 Linux Bash/OpenSSL을 지원하는 초기화 경로를 사용합니다. `prepare`는 새 Redis·Elasticsearch 환경 파일에 개발용 TLS를 준비하고, 기존 인증서를 자동 교체하지 않습니다. SQL Server 이미지는 `linux/amd64`로 고정되어 ARM 호스트에서는 Docker의 x86 에뮬레이션이 필요합니다. 운영 SQL Server는 지원되는 x86-64 Linux 환경에서 실행하세요.
+
+```bash
+python3 ops/configure-db.py prepare
+python3 ops/configure-db.py prepare-storage
+python3 ops/configure-db.py validate --profile development
+docker compose up -d --wait --wait-timeout 240
+./mssql/init-mssql.sh
+./redis/init-redis-sentinel.sh
+./elasticsearch/ensure-elasticsearch-initialized.sh
+./elasticsearch/sync-elasticsearch-users.sh
+```
+
+`prepare-storage`는 호스트 `sudo`·GNU `install` 대신 Elasticsearch Linux 이미지를 통해 snapshot 디렉터리 권한을 준비합니다. TLS 입력은 읽기 전용으로 마운트하고 `agora-elasticsearch-tls` 전용 볼륨으로 복사해 UID 1000/GID 0 권한을 적용하므로 호스트 개인 키 소유권은 유지됩니다. TLS helper는 Elasticsearch 기동 전에도 자동 실행됩니다. Docker 접근이 필요하며, 이미지 UID 변경 시 helper와 데이터 권한을 함께 조정해야 합니다. CA 개인 키는 컨테이너로 마운트하지 않는 `.dev-tls/`에 보관합니다. 사용자 지정 snapshot 경로는 Docker가 접근할 수 있는 디렉터리여야 합니다.
+
+Docker 노드가 실행 중이면 Redis 초기화는 호스트 `redis-cli` 설치 여부와 관계없이 컨테이너 CLI를 우선 사용합니다. 원격 Redis에 호스트 CLI로 연결할 때만 Sentinel이 광고하는 사설 IP로 호스트에서 접근할 수 있어야 합니다. 저장소 경로의 공백은 설정 생성·스크립트에서 따옴표로 보존합니다. 생성 설정에는 shell 확장 문자 `$`, backtick 및 개행을 허용하지 않습니다.
+
+```bash
+python3 -m unittest discover -s tests -p test_local_runtime.py
+```

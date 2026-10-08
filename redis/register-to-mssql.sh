@@ -39,9 +39,13 @@ fi
 
 # 2. Redis 환경 변수 로드 (redis/.env)
 if [ -f "$SCRIPT_DIR/.env" ]; then
-  export $(grep -v '^#' "$SCRIPT_DIR/.env" | xargs)
+  set -a
+  source "$SCRIPT_DIR/.env"
+  set +a
 elif [ -f .env ]; then
-  export $(grep -v '^#' .env | xargs)
+  set -a
+  source .env
+  set +a
 fi
 
 # 3. 접속 및 등록 변수 확정
@@ -102,12 +106,12 @@ echo "=================================================================="
 run_mssql_cmd() {
   local sql_query="$1"
   if command -v sqlcmd &> /dev/null; then
-    SQLCMDPASSWORD="$MSSQL_PASS" sqlcmd -S "$MSSQL_HOST,$MSSQL_PORT" -U "$MSSQL_USER" "${SQLCMD_TLS_ARGS[@]}" -b -I -d "$MSSQL_DB" -Q "$sql_query" -W
+    SQLCMDPASSWORD="$MSSQL_PASS" sqlcmd -S "$MSSQL_HOST,$MSSQL_PORT" -U "$MSSQL_USER" ${SQLCMD_TLS_ARGS[@]+"${SQLCMD_TLS_ARGS[@]}"} -b -I -d "$MSSQL_DB" -Q "$sql_query" -W
   elif [[ "$MSSQL_HOST" == "127.0.0.1" || "$MSSQL_HOST" == "localhost" || "$MSSQL_HOST" == "::1" ]] \
       && docker inspect --format '{{.State.Running}}' agora-mssql 2>/dev/null | grep -q '^true$'; then
     docker exec agora-mssql /bin/bash -lc \
       'export SQLCMDPASSWORD="$MSSQL_PASSWORD"; exec /opt/mssql-tools18/bin/sqlcmd "$@"' \
-      sqlcmd -S localhost -U "$MSSQL_USER" "${SQLCMD_TLS_ARGS[@]}" -b -I -d "$MSSQL_DB" -Q "$sql_query" -W
+      sqlcmd -S localhost -U "$MSSQL_USER" ${SQLCMD_TLS_ARGS[@]+"${SQLCMD_TLS_ARGS[@]}"} -b -I -d "$MSSQL_DB" -Q "$sql_query" -W
   else
     echo "[ERROR] sqlcmd is required for the configured SQL Server endpoint $MSSQL_HOST:$MSSQL_PORT. Docker fallback is only available for a running local agora-mssql container." >&2
     return 127

@@ -25,9 +25,12 @@ services:
     volumes:
       - es_data:/usr/share/elasticsearch/data
       - ${ES_SNAPSHOT_HOST_DIR:-./snapshots}:/usr/share/elasticsearch/snapshots
-      - ${ES_TLS_CERTS_DIR:-./certs}:/usr/share/elasticsearch/config/certs:ro
+      - es_tls:/usr/share/elasticsearch/config/certs:ro
       - ./curl-auth.sh:/usr/local/bin/curl-auth.sh:ro
       - ./healthcheck.sh:/usr/local/bin/elasticsearch-healthcheck.sh:ro
+    depends_on:
+      elasticsearch-tls-init:
+        condition: service_completed_successfully
     networks:
       - agora-net
     logging:
@@ -42,7 +45,27 @@ services:
       retries: 5
       start_period: 30s
 
+  elasticsearch-tls-init:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.19.22
+    user: "0:0"
+    restart: "no"
+    network_mode: none
+    environment:
+      ES_HTTP_TLS_ENABLED: ${ES_HTTP_TLS_ENABLED:-false}
+    volumes:
+      - type: bind
+        source: ${ES_TLS_CERTS_DIR:-./certs}
+        target: /source
+        read_only: true
+        bind:
+          create_host_path: false
+      - es_tls:/target
+      - ./prepare-tls-volume.sh:/usr/local/bin/prepare-tls-volume.sh:ro
+    entrypoint: ["/bin/bash", "/usr/local/bin/prepare-tls-volume.sh"]
+
 volumes:
+  es_tls:
+    name: agora-elasticsearch-tls
   es_data:
 
 networks:

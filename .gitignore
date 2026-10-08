@@ -104,3 +104,6 @@ temp/
 *.txt
 !requirements.txt
 !**/requirements.txt
+
+# Private local Elasticsearch certificate authority
+elasticsearch/.dev-tls/

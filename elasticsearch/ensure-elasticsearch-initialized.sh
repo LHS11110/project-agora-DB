@@ -40,7 +40,7 @@ fi
 request_status() {
   local path="$1"
   es_curl_authenticated elastic "$ELASTIC_PASSWORD" \
-    "${ES_CURL_ARGS[@]}" "$ES_HOST$path"
+    ${ES_CURL_ARGS[@]+"${ES_CURL_ARGS[@]}"} "$ES_HOST$path"
 }
 
 if ! auth_status="$(request_status '/_security/_authenticate')"; then
