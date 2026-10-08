@@ -41,10 +41,11 @@ run_on_local_primary() {
         | sed -n 's/^REDIS_NODE_PORT=//p' | tail -n 1 | tr -d '\r')"
       node_args=(-h "${bind_ip:-127.0.0.1}" -p "${port:-6379}")
     fi
-    role="$("$SCRIPT_DIR/redis-container-cli.sh" "$container" admin "${node_args[@]}" --raw INFO replication 2>/dev/null \
+    # Bash 3.2 treats empty arrays as unset under nounset; expand only when set.
+    role="$("$SCRIPT_DIR/redis-container-cli.sh" "$container" admin ${node_args[@]+"${node_args[@]}"} --raw INFO replication 2>/dev/null \
       | sed -n 's/^role://p' | tr -d '\r')"
     if [ "$role" = master ]; then
-      "$SCRIPT_DIR/redis-container-cli.sh" "$container" "$mode" "${node_args[@]}" "$@"
+      "$SCRIPT_DIR/redis-container-cli.sh" "$container" "$mode" ${node_args[@]+"${node_args[@]}"} "$@"
       return $?
     fi
   done
