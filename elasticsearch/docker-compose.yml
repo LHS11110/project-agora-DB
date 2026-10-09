@@ -1,6 +1,8 @@
 services:
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.19.22
+    build:
+      context: .
+    image: project-agora-elasticsearch:8.19.22-nori
     container_name: agora-elasticsearch
     restart: unless-stopped
     env_file:
@@ -10,6 +12,7 @@ services:
       - xpack.security.enabled=true
       - ES_HTTP_TLS_ENABLED=true
       - xpack.security.http.ssl.enabled=true
+      - xpack.security.http.ssl.supported_protocols=TLSv1.3
       - xpack.security.http.ssl.certificate=${ES_TLS_CERTIFICATE:-/usr/share/elasticsearch/config/certs/http.crt}
       - xpack.security.http.ssl.key=${ES_TLS_KEY:-/usr/share/elasticsearch/config/certs/http.key}
       - ELASTIC_PASSWORD=${ELASTIC_PASSWORD:?ELASTIC_PASSWORD is required}
@@ -26,6 +29,7 @@ services:
       - es_data:/usr/share/elasticsearch/data
       - ${ES_SNAPSHOT_HOST_DIR:-./snapshots}:/usr/share/elasticsearch/snapshots
       - es_tls:/usr/share/elasticsearch/config/certs:ro
+      - ./search/synonyms.txt:/usr/share/elasticsearch/config/analysis/canvas-synonyms.txt:ro
       - ./curl-auth.sh:/usr/local/bin/curl-auth.sh:ro
       - ./healthcheck.sh:/usr/local/bin/elasticsearch-healthcheck.sh:ro
     depends_on:

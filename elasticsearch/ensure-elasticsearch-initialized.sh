@@ -63,6 +63,7 @@ fi
 
 if [[ "$index_status" == "200" && "$alias_status" == "200" ]]; then
   printf 'Elasticsearch canvas index and log alias are already initialized.\n'
+  bash "$SCRIPT_DIR/init-search-index.sh"
   exit 0
 fi
 if [[ "$index_status" != "200" && "$index_status" != "404" ]]; then

@@ -80,7 +80,7 @@ CONFIG_TEMP="${CONFIG_FILE}.tmp"
     printf 'tls-ca-cert-file %s\n' "$REDIS_TLS_CA_CERT"
     printf 'tls-auth-clients no\n'
     printf 'tls-replication yes\n'
-    printf 'tls-protocols "TLSv1.2 TLSv1.3"\n'
+    printf 'tls-protocols "TLSv1.3"\n'
   else
     printf 'port %s\n' "$REDIS_NODE_PORT"
   fi

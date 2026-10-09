@@ -69,7 +69,7 @@ tls-key-file $TLS_KEY
 tls-ca-cert-file $TLS_CA_CERT
 tls-auth-clients no
 tls-replication yes
-tls-protocols "TLSv1.2 TLSv1.3"
+tls-protocols "TLSv1.3"
 EOF
   else
     cat > "$CONFIG_FILE" <<EOF
@@ -162,7 +162,7 @@ if [ "$TLS_ENABLED" = true ]; then
   set_config_line 'tls-ca-cert-file ' "tls-ca-cert-file $TLS_CA_CERT"
   set_config_line 'tls-auth-clients ' 'tls-auth-clients no'
   set_config_line 'tls-replication ' 'tls-replication yes'
-  set_config_line 'tls-protocols ' 'tls-protocols "TLSv1.2 TLSv1.3"'
+  set_config_line 'tls-protocols ' 'tls-protocols "TLSv1.3"'
 else
   set_config_line 'port ' "port $SENTINEL_PORT"
   sed -i '/^tls-port /d; /^tls-cert-file /d; /^tls-key-file /d; /^tls-ca-cert-file /d; /^tls-auth-clients /d; /^tls-replication /d; /^tls-protocols /d' "$CONFIG_FILE"

@@ -747,6 +747,7 @@ def sync_backend(args: argparse.Namespace) -> None:
         "ES_SCHEME": "https",
         "ES_CA_CERT": args.es_ca_cert,
         "ES_INDEX": elastic.get("ES_INDEX", "canvas"),
+        "ES_SEARCH_INDEX": elastic.get("ES_SEARCH_INDEX", "canvas-search"),
         "ES_USER_NAME": elastic.get("ES_USER_NAME", "agora_user"),
         "ES_USER_PASSWORD": elastic["ES_USER_PASSWORD"],
         "ES_LOG_INDEX": elastic.get("ES_LOG_INDEX", "agora-logs"),

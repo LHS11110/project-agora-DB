@@ -64,14 +64,14 @@ fi
 
 curl_es -s -f -u "elastic:$ELASTIC_PASSWORD" "$ES_HOST/_security/_authenticate" >/dev/null
 
-canvas_role_payload="$(ES_INDEX="$ES_INDEX" python3 - <<'PY'
+canvas_role_payload="$(ES_INDEX="$ES_INDEX" ES_SEARCH_INDEX="${ES_SEARCH_INDEX:-canvas-search}" python3 - <<'PY'
 import json
 import os
 
 print(json.dumps({
     "cluster": [],
     "indices": [{
-        "names": [os.environ["ES_INDEX"]],
+        "names": [os.environ["ES_INDEX"], os.environ["ES_SEARCH_INDEX"], os.environ["ES_SEARCH_INDEX"] + "-*"],
         "privileges": ["read", "write", "view_index_metadata"],
     }],
 }))

@@ -1,0 +1,143 @@
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0,
+    "analysis": {
+      "tokenizer": {
+        "ko_mixed": {
+          "type": "nori_tokenizer",
+          "decompound_mode": "mixed"
+        },
+        "ko_discard": {
+          "type": "nori_tokenizer",
+          "decompound_mode": "discard"
+        }
+      },
+      "filter": {
+        "ko_pos": {
+          "type": "nori_part_of_speech",
+          "stoptags": [
+            "E",
+            "J",
+            "SP",
+            "SSC",
+            "SSO",
+            "SC",
+            "SE"
+          ]
+        },
+        "canvas_synonyms": {
+          "type": "synonym_graph",
+          "synonyms_path": "analysis/canvas-synonyms.txt",
+          "updateable": true,
+          "lenient": false
+        }
+      },
+      "analyzer": {
+        "ko_index": {
+          "type": "custom",
+          "tokenizer": "ko_mixed",
+          "filter": [
+            "ko_pos",
+            "lowercase",
+            "nori_readingform"
+          ]
+        },
+        "ko_search": {
+          "type": "custom",
+          "tokenizer": "ko_discard",
+          "filter": [
+            "ko_pos",
+            "lowercase",
+            "nori_readingform",
+            "canvas_synonyms"
+          ]
+        },
+        "ko_typo": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": [
+            "lowercase"
+          ]
+        },
+        "compact": {
+          "type": "custom",
+          "char_filter": [
+            "remove_space"
+          ],
+          "tokenizer": "keyword",
+          "filter": [
+            "lowercase"
+          ]
+        }
+      },
+      "char_filter": {
+        "remove_space": {
+          "type": "pattern_replace",
+          "pattern": "\\s+",
+          "replacement": ""
+        }
+      }
+    }
+  },
+  "mappings": {
+    "dynamic": "strict",
+    "_meta": {
+      "schema_version": 1,
+      "embedding_dimensions": 384
+    },
+    "properties": {
+      "canvas-id": {
+        "type": "long"
+      },
+      "canvas-name": {
+        "type": "text",
+        "analyzer": "ko_index",
+        "search_analyzer": "ko_search",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 256
+          },
+          "typo": {
+            "type": "text",
+            "analyzer": "ko_typo"
+          },
+          "compact": {
+            "type": "text",
+            "analyzer": "compact"
+          }
+        }
+      },
+      "description": {
+        "type": "text",
+        "analyzer": "ko_index",
+        "search_analyzer": "ko_search",
+        "fields": {
+          "typo": {
+            "type": "text",
+            "analyzer": "ko_typo"
+          }
+        }
+      },
+      "fingerprint": {
+        "type": "keyword"
+      },
+      "model-revision": {
+        "type": "keyword"
+      },
+      "embedding": {
+        "type": "dense_vector",
+        "dims": 384,
+        "index": true,
+        "similarity": "cosine",
+        "index_options": {
+          "type": "int8_hnsw"
+        }
+      },
+      "updated-at": {
+        "type": "date"
+      }
+    }
+  }
+}

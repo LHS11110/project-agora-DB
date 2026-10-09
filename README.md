@@ -297,7 +297,7 @@ DB_HOST=127.0.0.1
 DB_PORT=1433
 DB_NAME=agora_db
 DB_USER=<MSSQL_USER>
-DB_PASSWORD=<MSSQL_PASSWORD>
+DB_PASSWORD='replace-with-your-generated-password'
 DB_ENCRYPT=true
 DB_TRUST_SERVER_CERTIFICATE=false
 DB_FREETDS_CONF=/etc/freetds/freetds.conf
@@ -401,3 +401,11 @@ Docker 노드가 실행 중이면 Redis 초기화는 호스트 `redis-cli` 설�
 ```bash
 python3 -m unittest discover -s tests -p test_local_runtime.py
 ```
+
+## TLS 프로토콜 정책
+
+웹 HTTPS/WSS, Wall nginx, Phoenix 브로커, Spring, C++의 HTTPS/WSS·Redis·Elasticsearch 연결과 Redis/Sentinel·Elasticsearch 서버는 TLS 1.3을 사용합니다. TLS 1.2로의 하향 연결은 허용하지 않습니다. 기존 CA 및 인증서를 그대로 사용할 수 있으며, 설정 반영에는 해당 서비스 재빌드·재시작이 필요합니다.
+
+예외는 현재 SQL Server 2022 Linux 컨테이너입니다. [Microsoft의 지원 문서](https://learn.microsoft.com/en-us/sql/linux/sql-server-linux-known-issues?view=sql-server-ver17#tls-13-not-supported-on-sql-server-2022)에 따라 이 의존성은 TLS 1.3을 지원하지 않으므로 SQL 연결은 인증서 검증을 수행하는 TLS 1.2 암호화를 유지합니다. SQL까지 TLS 1.3을 요구하려면 지원되는 SQL 서버 환경 및 TDS 드라이버로 별도 전환해야 합니다. SQL 호환성을 위해 JVM 전체에 TLS 1.3 전용 설정을 적용하지 않고 연결별로 제한합니다.
+
+한국어 형태소·오타·동의어·자체 호스팅 E5 의미 검색은 [검색 구성](elasticsearch/SEARCH.md)을 참고하세요. 원본 캔버스와 별도의 검색 projection을 사용합니다.

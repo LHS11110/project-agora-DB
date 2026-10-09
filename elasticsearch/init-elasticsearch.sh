@@ -293,3 +293,6 @@ curl_es -s -f -u "$ES_USER:$ES_USER_PASS" -X GET "$ES_HOST/$INDEX_NAME?pretty" |
 echo ""
 
 echo -e "\n[SUCCESS] 캔버스 인덱스($INDEX_NAME)와 로그 인덱스($LOG_INDEX), 각 전용 사용자의 초기화가 완료되었습니다."
+
+# Search metadata has its own schema and alias; preserve the original snapshot index.
+bash "$SCRIPT_DIR/init-search-index.sh"

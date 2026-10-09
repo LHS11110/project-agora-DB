@@ -1,0 +1,9 @@
+인공지능, artificial intelligence, ai
+기계학습, 머신러닝, machine learning
+협업, 공동작업, collaboration
+회의, 미팅, meeting
+개발, development
+기획, planning
+문서, document
+디자인, design
+프로젝트, project

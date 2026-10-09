@@ -101,9 +101,25 @@ tmp/
 temp/
 *.tmp
 *.temp
-*.txt
-!requirements.txt
-!**/requirements.txt
 
 # Private local Elasticsearch certificate authority
 elasticsearch/.dev-tls/
+
+# Local credentials, certificate material, caches and generated files
+.env-*
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.der
+*.p8
+*.ppk
+*.kdbx
+*.cer
+*.log.*
+.local-certs/
+.local-https/
+certificates/
+*.sqlite
+*.sqlite3
+*.db
