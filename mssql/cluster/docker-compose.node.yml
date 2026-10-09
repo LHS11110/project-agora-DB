@@ -11,7 +11,7 @@ services:
       MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?MSSQL_SA_PASSWORD is required}
       MSSQL_PID: ${MSSQL_NODE_PID:-Standard}
       MSSQL_ENABLE_HADR: "1"
-      MSSQL_TLS_ENABLED: ${MSSQL_TLS_ENABLED:-false}
+      MSSQL_TLS_ENABLED: true
       MSSQL_TLS_CERTIFICATE: ${MSSQL_TLS_CERTIFICATE:-/run/secrets/mssql-tls/server.crt}
       MSSQL_TLS_KEY: ${MSSQL_TLS_KEY:-/run/secrets/mssql-tls/server.key}
       TZ: ${TIMEZONE:-Asia/Seoul}

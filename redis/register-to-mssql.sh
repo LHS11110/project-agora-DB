@@ -14,6 +14,7 @@ MSSQL_TLS_OVERRIDE="${MSSQL_TLS_ENABLED:-}"
 
 # 1. MS SQL 환경 변수 기본값 로드 (mssql/.env 우선 참조)
 if [ -f "$ROOT_DIR/mssql/.env" ]; then
+  MSSQL_ENV_CA_FILE=$(source "$ROOT_DIR/mssql/.env"; printf '%s' "${SSL_CERT_FILE:-${MSSQL_TLS_CERTS_DIR:-$ROOT_DIR/mssql/tls}/ca.crt}")
   MSSQL_ENV_HOST=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep '^MSSQL_MANAGEMENT_HOST=' | cut -d '=' -f2- | tr -d '\r' || true)
   if [ -z "$MSSQL_ENV_HOST" ]; then
     MSSQL_ENV_HOST=$(grep -v '^#' "$ROOT_DIR/mssql/.env" | grep '^MSSQL_EXTERNAL_IP=' | cut -d '=' -f2- | tr -d '\r' || true)
@@ -83,14 +84,15 @@ MSSQL_PASS="${MSSQL_PASSWORD:-${MSSQL_ENV_PASS:-}}"
 MSSQL_TABLE="${MSSQL_TABLE_REDIS_SERVER:-${MSSQL_ENV_TABLE:-redis_server}}"
 DB_ENCRYPT="${MSSQL_ENV_DB_ENCRYPT:-true}"
 DB_TRUST_SERVER_CERTIFICATE="${MSSQL_ENV_TRUST_CERT:-false}"
-MSSQL_TLS_ENABLED="${MSSQL_ENV_TLS_ENABLED:-false}"
+MSSQL_TLS_ENABLED="${MSSQL_ENV_TLS_ENABLED:-true}"
 if [ -n "$DB_ENCRYPT_OVERRIDE" ]; then DB_ENCRYPT="$DB_ENCRYPT_OVERRIDE"; fi
 if [ -n "$DB_TRUST_CERT_OVERRIDE" ]; then DB_TRUST_SERVER_CERTIFICATE="$DB_TRUST_CERT_OVERRIDE"; fi
 if [ -n "$MSSQL_TLS_OVERRIDE" ]; then MSSQL_TLS_ENABLED="$MSSQL_TLS_OVERRIDE"; fi
 SQLCMD_TLS_ARGS=()
 if [ "$DB_ENCRYPT" != "false" ]; then SQLCMD_TLS_ARGS+=(-N); fi
-if [ "$DB_TRUST_SERVER_CERTIFICATE" = "true" ] || [ "$MSSQL_TLS_ENABLED" != "true" ]; then
-  SQLCMD_TLS_ARGS+=(-C)
+if [ "$DB_TRUST_SERVER_CERTIFICATE" = "true" ] || [ "$MSSQL_TLS_ENABLED" != "true" ] || [ "$DB_ENCRYPT" = "false" ]; then
+  echo "[ERROR] SQL connections require TLS and certificate verification." >&2
+  exit 1
 fi
 
 echo "=================================================================="
@@ -106,6 +108,7 @@ echo "=================================================================="
 run_mssql_cmd() {
   local sql_query="$1"
   if command -v sqlcmd &> /dev/null; then
+    export SSL_CERT_FILE="${SSL_CERT_FILE:-${MSSQL_ENV_CA_FILE:-$ROOT_DIR/mssql/tls/ca.crt}}"
     SQLCMDPASSWORD="$MSSQL_PASS" sqlcmd -S "$MSSQL_HOST,$MSSQL_PORT" -U "$MSSQL_USER" ${SQLCMD_TLS_ARGS[@]+"${SQLCMD_TLS_ARGS[@]}"} -b -I -d "$MSSQL_DB" -Q "$sql_query" -W
   elif [[ "$MSSQL_HOST" == "127.0.0.1" || "$MSSQL_HOST" == "localhost" || "$MSSQL_HOST" == "::1" ]] \
       && docker inspect --format '{{.State.Running}}' agora-mssql 2>/dev/null | grep -q '^true$'; then

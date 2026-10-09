@@ -122,9 +122,11 @@ def generated_secret(key: str) -> str:
     return f"A9!{token}" if key in {"MSSQL_SA_PASSWORD", "MSSQL_PASSWORD"} else token
 
 
-def prepare() -> None:
-    redis_env_was_missing = not ENV_FILES["redis"].exists()
-    elastic_env_was_missing = not ENV_FILES["elasticsearch"].exists()
+def prepare(tls_dir: Path | None = None) -> None:
+    missing = {service: not path.exists() for service, path in ENV_FILES.items()}
+    if tls_dir is not None:
+        tls_dir = tls_dir.expanduser().resolve()
+        validate_config_path(tls_dir, "--tls-dir")
     for env_path in ENV_FILES.values():
         if env_path.is_symlink():
             raise SetupError(f"Refusing to modify symlinked environment file: {env_path}")
@@ -156,39 +158,34 @@ def prepare() -> None:
         directory.mkdir(parents=True, exist_ok=True, mode=0o750)
         os.chmod(directory, 0o750)
 
-    if redis_env_was_missing:
-        redis_tls_dir = ROOT / "redis" / "tls" / "server"
-        update_env_file(ENV_FILES["redis"], {
-            "REDIS_TLS_ENABLED": "true",
-            "REDIS_TLS_CERTS_DIR": str(redis_tls_dir),
-            "REDIS_TLS_CERTIFICATE": "/run/secrets/redis-tls/server.crt",
-            "REDIS_TLS_KEY": "/run/secrets/redis-tls/server.key",
-            "REDIS_TLS_CA_CERT": "/run/secrets/redis-tls/ca.crt",
-            "REDIS_TLS_CA_CERT_HOST": str(ROOT / "redis" / "tls" / "ca.crt"),
-        })
-        if not (redis_tls_dir / "server.crt").is_file():
-            subprocess.run([str(ROOT / "redis" / "generate-dev-tls.sh")], cwd=ROOT, check=True)
+    for service, settings in {
+        "mssql": {"MSSQL_TLS_ENABLED": "true", "DB_TRUST_SERVER_CERTIFICATE": "false"},
+        "redis": {"REDIS_TLS_ENABLED": "true"},
+        "elasticsearch": {"ES_HTTP_TLS_ENABLED": "true", "ES_SCHEME": "https"},
+    }.items():
+        update_env_file(ENV_FILES[service], settings)
 
-    if elastic_env_was_missing:
-        elastic_cert_dir = ROOT / "elasticsearch" / "certs"
-        update_env_file(ENV_FILES["elasticsearch"], {
-            "ES_HTTP_TLS_ENABLED": "true",
-            "ES_SCHEME": "https",
-            "ES_TLS_CERTS_DIR": str(elastic_cert_dir),
-            "ES_CA_CERT": str(elastic_cert_dir / "ca.crt"),
+    if missing["mssql"] or tls_dir is not None:
+        sql_dir = tls_dir / "mssql" if tls_dir else ROOT / "mssql" / "tls"
+        update_env_file(ENV_FILES["mssql"], {"MSSQL_TLS_CERTS_DIR": str(sql_dir), "SSL_CERT_FILE": str(sql_dir / "ca.crt")})
+    if missing["redis"] or tls_dir is not None:
+        redis_dir = tls_dir / "redis" if tls_dir else ROOT / "redis" / "tls" / "server"
+        insight_dir = tls_dir / "internal" / "redis-insight" if tls_dir else ROOT / "redis" / "tls" / "insight"
+        update_env_file(ENV_FILES["redis"], {
+            "REDIS_TLS_CERTS_DIR": str(redis_dir),
+            "REDIS_TLS_CA_CERT_HOST": str(redis_dir / "ca.crt"),
+            "REDIS_INSIGHT_TLS_CERTS_DIR": str(insight_dir),
         })
-        if not (elastic_cert_dir / "http.crt").is_file():
-            subprocess.run([str(ROOT / "elasticsearch" / "generate-dev-tls.sh")], cwd=ROOT, check=True)
+    if missing["elasticsearch"] or tls_dir is not None:
+        es_dir = tls_dir / "elasticsearch" if tls_dir else ROOT / "elasticsearch" / "certs"
+        update_env_file(ENV_FILES["elasticsearch"], {
+            "ES_TLS_CERTS_DIR": str(es_dir), "ES_CA_CERT": str(es_dir / "ca.crt"),
+        })
 
     local_compose_subnets({service: read_env(path) for service, path in ENV_FILES.items()})
-    repair_stale_local_network()
-
-    print("Environment files are present with owner-only permissions.")
-    print("Placeholder passwords were replaced with independent random secrets.")
-    print("Redis and Elasticsearch development TLS are prepared when their environment files are first created.")
-    print("Run prepare-storage before starting Docker to make the ES key and snapshot directory readable by the container UID.")
-    print("Production certificates and snapshot storage must still be provided by the deployment environment.")
-    print("Store matching application credentials in the BE secret manager or run sync-backend.")
+    print("Environment files prepared (0600); existing non-placeholder passwords preserved.")
+    print("TLS and certificate verification are enabled. No certificates were generated.")
+    print("Supply certificate/key/CA files, then validate before starting Docker.")
 
 
 def local_compose_subnets(configs: dict[str, dict[str, str]]) -> tuple[ipaddress.IPv4Network, ipaddress.IPv4Network]:
@@ -343,8 +340,8 @@ def validate_host(value: str, label: str, require_private: bool = True) -> None:
 
 
 def validate_config_path(path: Path, label: str) -> None:
-    if not re.fullmatch(r"/[A-Za-z0-9._/-]+", str(path)):
-        raise SetupError(f"{label} must use an absolute path with no whitespace or shell/Compose special characters.")
+    if not path.is_absolute() or any(character in str(path) for character in ("\n", "\r", "$", "`", ",")):
+        raise SetupError(f"{label} must be absolute and contain no line breaks, shell expansion or commas.")
 
 
 def require_mounted_directory(value: str, label: str) -> Path:
@@ -388,7 +385,7 @@ def verify_certificate(cert: Path, key: Path, ca: Path, hosts: list[str], label:
     for item in (cert, key, ca):
         if not item.is_file():
             raise SetupError(f"{label} certificate file is missing: {item}")
-    verify = subprocess.run(["openssl", "verify", "-CAfile", str(ca), str(cert)], capture_output=True, text=True)
+    verify = subprocess.run(["openssl", "verify", "-purpose", "sslserver", "-CAfile", str(ca), "-untrusted", str(cert), str(cert)], capture_output=True, text=True)
     if verify.returncode:
         raise SetupError(f"{label} certificate chain does not validate against its configured CA.")
 
@@ -399,7 +396,7 @@ def verify_certificate(cert: Path, key: Path, ca: Path, hosts: list[str], label:
         ["openssl", "pkey", "-pubin", "-outform", "DER"], input=cert_pub, capture_output=True, check=True
     ).stdout
     key_der = subprocess.run(
-        ["openssl", "pkey", "-in", str(key), "-pubout", "-outform", "DER"], capture_output=True, check=True
+        ["openssl", "pkey", "-in", str(key), "-passin", "pass:", "-pubout", "-outform", "DER"], capture_output=True, check=True
     ).stdout
     if cert_der != key_der:
         raise SetupError(f"{label} certificate and private key do not match.")
@@ -408,8 +405,8 @@ def verify_certificate(cert: Path, key: Path, ca: Path, hosts: list[str], label:
     if expiry.returncode:
         raise SetupError(f"{label} certificate expires within 30 days or is already expired.")
 
-    # macOS LibreSSL lacks x509 -checkip/-checkhost. Parse SANs after verifying
-    # the chain/key/expiry above; never fall back to an unverified CN.
+    # Parse SANs after verifying the chain/key/expiry above, without relying
+    # on x509 -checkip/-checkhost; never fall back to an unverified CN.
     certificate_text = subprocess.run(
         ["openssl", "x509", "-in", str(cert), "-noout", "-text"],
         capture_output=True, text=True, check=True,
@@ -471,6 +468,13 @@ def validate(args: argparse.Namespace) -> None:
     local_compose_subnets(configs)
     production = args.profile == "production"
     validate_secrets(configs, production)
+    for service, key in (("mssql", "MSSQL_TLS_ENABLED"), ("redis", "REDIS_TLS_ENABLED"), ("elasticsearch", "ES_HTTP_TLS_ENABLED")):
+        if configs[service].get(key, "true").lower() != "true":
+            raise SetupError(f"TLS is required: {key}=true.")
+    if configs["mssql"].get("DB_TRUST_SERVER_CERTIFICATE", "false").lower() != "false":
+        raise SetupError("SQL certificate verification is required: DB_TRUST_SERVER_CERTIFICATE=false.")
+    if configs["elasticsearch"].get("ES_SCHEME", "https") != "https":
+        raise SetupError("Elasticsearch requires ES_SCHEME=https.")
 
     preflight_env = os.environ.copy()
     preflight_env.setdefault("MSSQL_NODE_HOSTNAME", "agora-check")
@@ -490,17 +494,21 @@ def validate(args: argparse.Namespace) -> None:
         compose_config(*compose_args, env=preflight_env)
 
     if not production:
+        sql = configs["mssql"]
+        sql_dir = path_from_env(ROOT / "mssql", sql.get("MSSQL_TLS_CERTS_DIR", "./tls"))
+        verify_certificate(sql_dir / "server.crt", sql_dir / "server.key", sql_dir / "ca.crt",
+                           ["agora-mssql", "mssql", "localhost", sql.get("MSSQL_EXTERNAL_IP", "127.0.0.1")], "SQL Server")
         elastic = configs["elasticsearch"]
         if elastic.get("ES_HTTP_TLS_ENABLED", "false").lower() == "true":
             cert_dir = path_from_env(ROOT / "elasticsearch", elastic.get("ES_TLS_CERTS_DIR", "./certs"))
             verify_certificate(cert_dir / "http.crt", cert_dir / "http.key", cert_dir / "ca.crt",
-                               [elastic.get("ES_EXTERNAL_IP", "127.0.0.1")], "Elasticsearch")
+                               ["agora-elasticsearch", "localhost", elastic.get("ES_EXTERNAL_IP", "127.0.0.1")], "Elasticsearch")
         redis = configs["redis"]
         if redis.get("REDIS_TLS_ENABLED", "false").lower() == "true":
             redis_dir = path_from_env(ROOT / "redis", redis.get("REDIS_TLS_CERTS_DIR", "./tls/server")).resolve()
             validate_config_path(redis_dir, "REDIS_TLS_CERTS_DIR")
             verify_certificate(redis_dir / "server.crt", redis_dir / "server.key", redis_dir / "ca.crt",
-                               [redis.get("REDIS_EXTERNAL_IP", "127.0.0.1")], "Redis/Sentinel")
+                               [redis.get(key, default) for key, default in (("REDIS_PRIMARY_IP", "172.20.0.2"), ("REDIS_REPLICA_1_IP", "172.20.0.7"), ("REDIS_REPLICA_2_IP", "172.20.0.5"), ("REDIS_SENTINEL_1_IP", "172.20.0.6"), ("REDIS_SENTINEL_2_IP", "172.20.0.3"), ("REDIS_SENTINEL_3_IP", "172.20.0.4"))], "Redis/Sentinel")
             host_ca_setting = redis.get("REDIS_TLS_CA_CERT_HOST", "")
             if not host_ca_setting or not Path(host_ca_setting).is_absolute():
                 raise SetupError("Set REDIS_TLS_CA_CERT_HOST to an absolute CA path readable by BE clients.")
@@ -909,7 +917,8 @@ def prepare_storage(args: argparse.Namespace) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
-    subparsers.add_parser("prepare", help="Create owner-only env files and replace template secrets.")
+    preparation = subparsers.add_parser("prepare", help="Create owner-only TLS env files and replace template secrets; never generate certificates.")
+    preparation.add_argument("--tls-dir", type=Path, help="Manually supplied TLS bundle directory (see TLS_SETUP.md).")
     check = subparsers.add_parser("validate", help="Validate secrets, TLS, network addresses, and Compose syntax.")
     check.add_argument("--profile", choices=("development", "production"), default="development")
     check.add_argument("--sql-host", help="SQL listener name/IP used by applications and TLS SAN validation.")
@@ -953,7 +962,7 @@ def main() -> int:
     args = build_parser().parse_args()
     try:
         if args.command == "prepare":
-            prepare()
+            prepare(args.tls_dir)
         elif args.command == "validate":
             validate(args)
         elif args.command == "configure-production":

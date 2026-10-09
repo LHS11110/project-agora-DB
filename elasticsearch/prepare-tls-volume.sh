@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# Runs as root inside the Linux helper, with host certificate input read-only.
+# Runs as root inside the helper container, with certificate input read-only.
 set -euo pipefail
-if [ "${ES_HTTP_TLS_ENABLED:-false}" != true ]; then exit 0; fi
+if [ "${ES_HTTP_TLS_ENABLED:-true}" != true ]; then
+  echo "Elasticsearch requires TLS; ES_HTTP_TLS_ENABLED must be true." >&2
+  exit 1
+fi
 for name in http.crt http.key ca.crt; do
   [ -f "/source/$name" ] && [ ! -L "/source/$name" ] \
     || { echo "Elasticsearch TLS input is missing or is a symlink: $name" >&2; exit 1; }

@@ -21,19 +21,19 @@ docker compose version
 저장소 루트에서 실행합니다.
 
 ```bash
-python3 ops/configure-db.py prepare
+python3 ops/configure-db.py prepare --tls-dir /path/to/certificates
 python3 ops/configure-db.py validate --profile development
 python3 ops/configure-db.py deploy-local
 ```
 
-`prepare`는 누락된 `.env`를 `.env.example`에서 만들고 placeholder 비밀번호를 서로 다른 난수로 바꿉니다. 이미 설정된 비밀번호는 유지합니다. 파일 권한은 `0600`으로 설정하며 새 로컬 환경에 개발용 Redis·Elasticsearch 인증서를 준비합니다. 운영 인증서는 별도로 제공해야 합니다. 로컬 앱 네트워크 `AGORA_NET_SUBNET` 기본값은 `172.21.0.0/16`, Redis HA `REDIS_HA_SUBNET` 기본값은 `172.20.0.0/16`이며 겹치지 않아야 합니다. `prepare`는 이전 Compose 실행이 남긴 빈 `agora-net`이 잘못된 자동 할당 대역을 쓰면, 현재 Compose 프로젝트 소유인지와 연결된 컨테이너가 없는지를 확인한 뒤에만 제거합니다. 활성 네트워크는 제거하지 않으며, 필요한 중지 절차를 오류 메시지로 안내합니다. `deploy-local`은 기본 Compose 프로젝트에서 Redis Sentinel HA와 SQL·Elasticsearch를 시작하고 health check 및 초기화를 수행합니다.
+`prepare`는 누락된 `.env`를 `.env.example`에서 만들고 placeholder 비밀번호를 서로 다른 난수로 바꿉니다. 이미 설정된 비밀번호는 유지합니다. 파일 권한은 `0600`으로 설정하며 TLS와 인증서 검증을 활성화합니다. 인증서·개인 키·공개 CA는 [TLS 안내](../TLS_SETUP.md)에 따라 직접 제공합니다. 인증서는 생성하지 않습니다. 로컬 앱 네트워크 `AGORA_NET_SUBNET` 기본값은 `172.21.0.0/16`, Redis HA `REDIS_HA_SUBNET` 기본값은 `172.20.0.0/16`이며 겹치지 않아야 합니다. `deploy-local`은 기본 Compose 프로젝트에서 Redis Sentinel HA와 SQL·Elasticsearch를 시작하고 health check 및 초기화를 수행합니다.
 
 ## 운영 사전 검사
 
 먼저 `.env`와 난수 자격 증명을 준비하고, 발급받은 서버 인증서·키·CA를 각 인증서 디렉터리에 둡니다. 실제 백업 저장소를 마운트한 다음 아래 명령으로 TLS, 사설 주소, ES snapshot 경로를 서비스 `.env`에 기록할 수 있습니다.
 
 ```bash
-python3 ops/configure-db.py prepare
+python3 ops/configure-db.py prepare --tls-dir /path/to/certificates
 python3 ops/configure-db.py configure-production \
   --sql-host sql-ag.internal --sql-node-hostname agora-sql-01 --sql-bind-ip 10.20.0.11 \
   --es-host elasticsearch.internal --es-bind-ip 10.20.0.30 \
@@ -162,4 +162,4 @@ sudo ./ops/install-backup-timer.sh /mnt/agora-backups
 
 스크립트만으로 인증기관에서 운영 인증서를 발급하거나, 클라우드 방화벽을 열거나, Pacemaker quorum/fencing을 증명할 수는 없습니다. 다중 호스트 장애 전환 및 BE/C++ 재연결, 새 환경 복원과 저장소 수명주기 정책은 [운영 전 체크리스트](../PRE_PRODUCTION_CHECKLIST.md)의 대상 환경 항목을 완료하고 기록해야 합니다.
 
-`prepare-storage`는 Docker의 Elasticsearch 이미지를 통해 snapshot 권한과 전용 TLS 볼륨의 Linux UID/GID를 적용하며 호스트 sudo를 요구하지 않습니다. 호스트 개인 키의 소유권은 변경하지 않습니다. 새 로컬 준비 시 Redis·Elasticsearch 개발용 TLS가 함께 생성됩니다. macOS LibreSSL에서도 인증서 SAN 검증이 가능하며 운영 TLS 검증은 계속 유지됩니다.
+`prepare-storage`는 Docker의 Elasticsearch 이미지를 통해 snapshot 권한과 전용 TLS 볼륨의 UID/GID를 적용하며 호스트 sudo를 요구하지 않습니다. 호스트 개인 키의 소유권은 변경하지 않습니다. 설정 도구는 인증서를 생성하지 않으며 직접 제공한 파일만 사용합니다.

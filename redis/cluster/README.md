@@ -119,7 +119,7 @@ that packets avoid untrusted network paths.
 The root Compose includes `redis/docker-compose.sentinel.yml` and runs the six
 Redis/Sentinel containers on one host in an `internal: true` Docker network
 for development and failover exercises. Redis ports are TLS-only; host
-applications on this machine use the fixed Docker bridge addresses in
+applications use the configured Docker bridge addresses in
 `REDIS_SENTINELS`. This setup does not protect against that host failing.
 Redis uses asynchronous replication, so failover can lose the most recent
 writes if they had not reached a replica yet.

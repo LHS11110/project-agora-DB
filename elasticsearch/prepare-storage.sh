@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Use the Linux image's ownership tools; no host sudo/GNU install dependency.
+# Prepare storage ownership with the container image tools.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -f "$SCRIPT_DIR/.env" ]; then

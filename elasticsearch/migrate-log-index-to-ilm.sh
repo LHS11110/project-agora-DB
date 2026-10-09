@@ -19,7 +19,7 @@ source "$SCRIPT_DIR/curl-auth.sh"
 
 ES_HOST="${ES_HOST:-${ES_EXTERNAL_IP:-127.0.0.1}}"
 case "$ES_HOST" in 0.0.0.0|::) ES_HOST=127.0.0.1 ;; esac
-ES_SCHEME="${ES_SCHEME:-http}"
+ES_SCHEME="${ES_SCHEME:-https}"
 ES_PORT="${ES_EXTERNAL_PORT:-${ES_PORT:-9200}}"
 ES_URL="${ES_SCHEME}://${ES_HOST}:${ES_PORT}"
 LOG_INDEX="${ES_LOG_INDEX:-agora-logs}"

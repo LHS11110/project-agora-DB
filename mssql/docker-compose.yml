@@ -1,4 +1,21 @@
 services:
+  mssql-tls-init:
+    image: mcr.microsoft.com/mssql/server:2022-CU27-ubuntu-22.04
+    platform: linux/amd64
+    user: "0:0"
+    restart: "no"
+    network_mode: none
+    entrypoint: ["/bin/sh", "/prepare-tls-volume.sh", "10001", "server.crt", "server.key", "ca.crt"]
+    volumes:
+      - type: bind
+        source: ${MSSQL_TLS_CERTS_DIR:-./tls}
+        target: /source
+        read_only: true
+        bind:
+          create_host_path: false
+      - mssql_tls:/target
+      - ../ops/prepare-tls-volume.sh:/prepare-tls-volume.sh:ro
+
   mssql:
     image: mcr.microsoft.com/mssql/server:2022-CU27-ubuntu-22.04
     platform: linux/amd64
@@ -14,9 +31,10 @@ services:
       - MSSQL_USER=${MSSQL_USER:-agora_user}
       - MSSQL_PASSWORD=${MSSQL_PASSWORD:?MSSQL_PASSWORD is required}
       - DB_TRUST_SERVER_CERTIFICATE=${DB_TRUST_SERVER_CERTIFICATE:-false}
-      - MSSQL_TLS_ENABLED=${MSSQL_TLS_ENABLED:-false}
-      - MSSQL_TLS_CERTIFICATE=${MSSQL_TLS_CERTIFICATE:-/run/secrets/mssql-tls/server.crt}
-      - MSSQL_TLS_KEY=${MSSQL_TLS_KEY:-/run/secrets/mssql-tls/server.key}
+      - MSSQL_TLS_ENABLED=true
+      - SSL_CERT_FILE=/run/tls/ca.pem
+      - MSSQL_TLS_CERTIFICATE=/run/tls/fullchain.pem
+      - MSSQL_TLS_KEY=/run/tls/privkey.pem
       - MSSQL_TABLE_USERS=${MSSQL_TABLE_USERS:-users}
       - MSSQL_TABLE_REDIS_SERVER=${MSSQL_TABLE_REDIS_SERVER:-redis_server}
       - MSSQL_TABLE_CANVAS_INFO=${MSSQL_TABLE_CANVAS_INFO:-${MSSQL_TABLE_CANVAS_CACHE:-canvas_info}}
@@ -29,9 +47,12 @@ services:
     volumes:
       - ./start-mssql.sh:/usr/local/bin/start-mssql.sh:ro
       - mssql_data:/var/opt/mssql
-      - ${MSSQL_TLS_CERTS_DIR:-./tls}:/run/secrets/mssql-tls:ro
+      - mssql_tls:/run/tls:ro
     entrypoint: ["/bin/bash", "/usr/local/bin/start-mssql.sh"]
     command: ["/opt/mssql/bin/sqlservr"]
+    depends_on:
+      mssql-tls-init:
+        condition: service_completed_successfully
     networks:
       - agora-net
     logging:
@@ -40,7 +61,7 @@ services:
         max-size: "20m"
         max-file: "3"
     healthcheck:
-      test: [ "CMD-SHELL", "SQLCMDPASSWORD=\"$${MSSQL_SA_PASSWORD}\" /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -Q \"SELECT 1\" || exit 1" ]
+      test: [ "CMD-SHELL", "SSL_CERT_FILE=/run/tls/ca.pem SQLCMDPASSWORD=\"$${MSSQL_SA_PASSWORD}\" /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -Q \"SELECT 1\" || exit 1" ]
       interval: 20s
       timeout: 10s
       retries: 5
@@ -59,7 +80,8 @@ services:
       - MSSQL_PASSWORD=${MSSQL_PASSWORD}
       - MSSQL_SA_PASSWORD=${MSSQL_SA_PASSWORD}
       - DB_TRUST_SERVER_CERTIFICATE=${DB_TRUST_SERVER_CERTIFICATE:-false}
-      - MSSQL_TLS_ENABLED=${MSSQL_TLS_ENABLED:-false}
+      - MSSQL_TLS_ENABLED=true
+      - SSL_CERT_FILE=/run/tls/ca.pem
       - MSSQL_TABLE_USERS=${MSSQL_TABLE_USERS:-users}
       - MSSQL_TABLE_REDIS_SERVER=${MSSQL_TABLE_REDIS_SERVER:-redis_server}
       - MSSQL_TABLE_CANVAS_INFO=${MSSQL_TABLE_CANVAS_INFO:-canvas_info}
@@ -69,12 +91,13 @@ services:
         condition: service_healthy
     volumes:
       - ./init-mssql.sql:/init/init-mssql.sql:ro
+      - mssql_tls:/run/tls:ro
     networks:
       - agora-net
     entrypoint: ["/bin/bash", "-c"]
     command:
       - >-
-        if [ "$${DB_TRUST_SERVER_CERTIFICATE:-false}" = "true" ] || [ "$${MSSQL_TLS_ENABLED:-false}" != "true" ]; then SQLCMD_TRUST=(-C); else SQLCMD_TRUST=(); fi;
+        SQLCMD_TRUST=();
         SQLCMDPASSWORD="$$MSSQL_SA_PASSWORD" /opt/mssql-tools18/bin/sqlcmd -S mssql -U sa "$${SQLCMD_TRUST[@]}" -b -I
         -v DB_NAME="$$MSSQL_DB" DB_USER="$$MSSQL_USER" DB_PASSWORD="$$MSSQL_PASSWORD"
         TABLE_USERS="$$MSSQL_TABLE_USERS" TABLE_REDIS_SERVER="$$MSSQL_TABLE_REDIS_SERVER"
@@ -82,6 +105,8 @@ services:
         TABLE_CPP_SERVER="$$MSSQL_TABLE_CPP_SERVER" -i /init/init-mssql.sql
 
 volumes:
+  mssql_tls:
+    name: agora-mssql-tls
   mssql_data:
 
 networks:

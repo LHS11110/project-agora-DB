@@ -19,7 +19,7 @@ es_curl_authenticated() {
   auth_config="$(mktemp "${TMPDIR:-/tmp}/agora-es-curl.XXXXXX")"
   chmod 600 "$auth_config"
   printf 'user = "%s"\n' "$credentials" > "$auth_config"
-  if curl --config "$auth_config" "$@"; then
+  if curl --proto "=https" --proto-redir "=https" --config "$auth_config" "$@"; then
     curl_status=0
   else
     curl_status=$?

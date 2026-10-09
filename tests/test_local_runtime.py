@@ -1,4 +1,4 @@
-"""Regression tests for Mac/Linux host initialization, requiring no running DB."""
+"""Regression tests for initialization, requiring no running DB."""
 import importlib.util
 import os
 from pathlib import Path

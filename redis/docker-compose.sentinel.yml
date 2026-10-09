@@ -169,19 +169,44 @@ services:
       retries: 10
       start_period: 30s
 
+  redis-insight-tls-init:
+    image: redis:8.6.7
+    user: "0:0"
+    restart: "no"
+    network_mode: none
+    entrypoint: ["/bin/sh", "/prepare-tls-volume.sh", "1000", "fullchain.pem", "privkey.pem", "ca.pem"]
+    volumes:
+      - type: bind
+        source: ${REDIS_INSIGHT_TLS_CERTS_DIR:-./tls/insight}
+        target: /source
+        read_only: true
+        bind:
+          create_host_path: false
+      - redis-insight-tls:/target
+      - ../ops/prepare-tls-volume.sh:/prepare-tls-volume.sh:ro
+
   redis-insight:
+    depends_on:
+      redis-insight-tls-init:
+        condition: service_completed_successfully
+    environment:
+      RI_SERVER_TLS_KEY: /run/tls/privkey.pem
+      RI_SERVER_TLS_CERT: /run/tls/fullchain.pem
     image: redis/redisinsight:3.8.0
     restart: unless-stopped
     ports:
       - "${REDIS_INSIGHT_BIND_IP:-127.0.0.1}:${REDIS_INSIGHT_PORT:-8001}:5540"
     volumes:
       - redis_insight_data:/data
+      - redis-insight-tls:/run/tls:ro
     networks:
       redis-ha:
         ipv4_address: ${REDIS_INSIGHT_IP:-172.20.0.8}
       redis-insight-access: {}
 
 volumes:
+  redis-insight-tls:
+    name: agora-redis-insight-tls
   redis_primary_data:
   redis_replica_1_data:
   redis_replica_2_data:

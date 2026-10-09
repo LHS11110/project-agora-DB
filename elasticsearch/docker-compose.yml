@@ -8,8 +8,8 @@ services:
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=true
-      - ES_HTTP_TLS_ENABLED=${ES_HTTP_TLS_ENABLED:-false}
-      - xpack.security.http.ssl.enabled=${ES_HTTP_TLS_ENABLED:-false}
+      - ES_HTTP_TLS_ENABLED=true
+      - xpack.security.http.ssl.enabled=true
       - xpack.security.http.ssl.certificate=${ES_TLS_CERTIFICATE:-/usr/share/elasticsearch/config/certs/http.crt}
       - xpack.security.http.ssl.key=${ES_TLS_KEY:-/usr/share/elasticsearch/config/certs/http.key}
       - ELASTIC_PASSWORD=${ELASTIC_PASSWORD:?ELASTIC_PASSWORD is required}
@@ -51,7 +51,7 @@ services:
     restart: "no"
     network_mode: none
     environment:
-      ES_HTTP_TLS_ENABLED: ${ES_HTTP_TLS_ENABLED:-false}
+      ES_HTTP_TLS_ENABLED: true
     volumes:
       - type: bind
         source: ${ES_TLS_CERTS_DIR:-./certs}

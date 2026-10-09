@@ -37,9 +37,11 @@ MSSQL_DB="${MSSQL_DB:-agora_db}"
 MSSQL_USER="${MSSQL_USER:-agora_user}"
 : "${MSSQL_PASSWORD:?MSSQL_PASSWORD must be set in mssql/.env}"
 MSSQL_PASS="$MSSQL_PASSWORD"
+export SSL_CERT_FILE="${SSL_CERT_FILE:-${MSSQL_TLS_CERTS_DIR:-$SCRIPT_DIR/tls}/ca.crt}"
 SQLCMD_TRUST_ARGS=()
 if [ "${DB_TRUST_SERVER_CERTIFICATE:-false}" = "true" ]; then
-  SQLCMD_TRUST_ARGS=(-C)
+  echo "[ERROR] SQL certificate verification is required; DB_TRUST_SERVER_CERTIFICATE must be false." >&2
+  exit 1
 fi
 MSSQL_TABLE_USERS="${MSSQL_TABLE_USERS:-users}"
 MSSQL_TABLE_REDIS_SERVER="${MSSQL_TABLE_REDIS_SERVER:-redis_server}"

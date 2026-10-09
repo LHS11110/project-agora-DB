@@ -13,7 +13,7 @@ source "$SCRIPT_DIR/curl-auth.sh"
 : "${ES_RESTORE_SNAPSHOT:?Set ES_RESTORE_SNAPSHOT to the exact snapshot name}"
 ES_HOST="${ES_HOST:-${ES_EXTERNAL_IP:-127.0.0.1}}"
 case "$ES_HOST" in 0.0.0.0|::) ES_HOST=127.0.0.1 ;; esac
-ES_SCHEME="${ES_SCHEME:-http}"
+ES_SCHEME="${ES_SCHEME:-https}"
 ES_PORT="${ES_EXTERNAL_PORT:-${ES_PORT:-9200}}"
 ES_URL="${ES_SCHEME}://${ES_HOST}:${ES_PORT}"
 REPOSITORY="${ES_SNAPSHOT_REPOSITORY:-agora-filesystem}"

@@ -28,9 +28,9 @@ else
   ES_CONNECT_IP="$ES_EXTERNAL_IP"
 fi
 ES_CONNECT_PORT="${ES_EXTERNAL_PORT:-${ES_PORT:-9200}}"
-ES_SCHEME="${ES_SCHEME:-http}"
-if [[ "$ES_SCHEME" != "http" && "$ES_SCHEME" != "https" ]]; then
-  echo "[ERROR] ES_SCHEME must be http or https." >&2
+ES_SCHEME="${ES_SCHEME:-https}"
+if [[ "$ES_SCHEME" != "https" ]]; then
+  echo "[ERROR] ES_SCHEME must be https." >&2
   exit 1
 fi
 ES_HOST="${ES_SCHEME}://${ES_CONNECT_IP}:${ES_CONNECT_PORT}"

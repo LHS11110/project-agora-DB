@@ -29,18 +29,20 @@ flowchart LR
 
 ## 빠른 시작
 
+처음 clone한 전체 앱의 설정은 [TLS 초기 설정 안내](TLS_SETUP.md)를 따르세요. 인증서와 키는 직접 준비하며, FE의 `setup-projects.py`가 나머지 설정을 한 번에 준비합니다. DB만 준비하는 경우 아래 절차를 사용합니다.
+
 ### 1. 환경 파일 준비
 
 각 서비스는 독립 환경 파일을 사용합니다. 아래 자동 준비 명령이 템플릿을 복사하고 placeholder 비밀번호를 서비스마다 다른 난수로 바꿉니다. 비밀번호는 shell 기반 관리 도구와 호환되도록 영문자·숫자 위주로 생성합니다.
 
 ```bash
 cd /path/to/project-agora-DB
-python3 ops/configure-db.py prepare
+python3 ops/configure-db.py prepare --tls-dir /path/to/certificates
 python3 ops/configure-db.py validate --profile development
 python3 ops/configure-db.py prepare-storage
 ```
 
-운영 적용 명령과 백업 예약 설정은 [DB 운영 자동화 안내](ops/README.md)를 참고하세요. `prepare`는 새 로컬 환경에 개발용 Redis·Elasticsearch 인증서를 준비하며 운영 인증서를 발급하거나 운영 주소를 추측하지 않습니다. 운영용 TLS 인증서·사설 IP·외부 백업 마운트를 준비한 뒤 `validate --profile production`을 통과시켜야 합니다.
+운영 적용 명령과 백업 예약 설정은 [DB 운영 자동화 안내](ops/README.md)를 참고하세요. `prepare`는 환경 파일과 난수 비밀번호를 준비하고 TLS·인증서 검증을 활성화합니다. 인증서는 생성하지 않으며 직접 준비한 파일의 경로를 설정합니다. 운영용 TLS 인증서·사설 IP·외부 백업 마운트를 준비한 뒤 `validate --profile production`을 통과시켜야 합니다.
 
 | 파일 | 필수 비밀값 |
 | --- | --- |
@@ -110,7 +112,7 @@ ES_ALLOW_LOG_INDEX_MIGRATION=true ./elasticsearch/migrate-log-index-to-ilm.sh
 
 단일 Redis에서 HA로 옮길 때는 새 볼륨을 대상으로 하는 [레거시 데이터 이관 단계](redis/cluster/README.md#move-legacy-single-node-data)를 사용하세요. 중지된 컨테이너에 `docker cp`만 실행하면 Docker 볼륨에 데이터가 들어가지 않아 기존 DB가 빈 상태로 기동될 수 있습니다.
 
-이 구성은 Redis 노드 3개와 Sentinel 3개를 사용합니다. `redis_server`에는 초기 primary 사설 IP와 논리 서비스 ID 한 건만 활성화하며, BE/C++은 이 행의 IP·포트로 직접 연결하지 않고 필수 `REDIS_SENTINELS`에서 현재 primary를 조회합니다. 연결을 다시 열 때마다 Sentinel을 조회하고 노드의 `ROLE`이 `master`인지 확인하므로 failover 뒤 SQL 행을 수동 갱신할 필요가 없습니다. Sentinel 인증을 쓰는 모든 환경은 `REDIS_SENTINEL_USER`/`REDIS_SENTINEL_PASSWORD`를 Redis와 BE에 함께 설정해야 합니다. 개발용 HA Compose는 `agora-redis-ha`를 `internal: true`로 격리하고 Redis·복제·Sentinel·클라이언트 연결에 CA 검증 TLS를 사용합니다. 같은 호스트의 BE/C++은 고정 Docker 사설 주소를 Sentinel seed로 사용합니다. 운영에서는 모든 Redis/Sentinel 주소가 앱·복제 호스트에서 도달 가능한 사설망 주소여야 하고, 신뢰되지 않은 망이나 인터넷 경로를 통과하지 않도록 라우팅·방화벽을 확인해야 합니다. 인증서는 각 연결 주소를 SAN에 포함해야 하며 BE/C++에는 신뢰 가능한 CA를 `REDIS_TLS_CA_CERT`로 제공합니다. 개발용 CA는 `./redis/generate-dev-tls.sh`로 생성하며 운영 인증서로 사용하지 않습니다. 운영에서 호스트 장애도 견디려면 Redis 노드와 Sentinel을 서로 다른 호스트에 분산하고, 각 노드가 서로 및 클라이언트에서 접근 가능한 주소를 광고하도록 배포해야 합니다. Redis 조회·정리 도구는 Sentinel HA 노드 중 현재 primary를 찾아 실행합니다.
+이 구성은 Redis 노드 3개와 Sentinel 3개를 사용합니다. `redis_server`에는 초기 primary 사설 IP와 논리 서비스 ID 한 건만 활성화하며, BE/C++은 이 행의 IP·포트로 직접 연결하지 않고 필수 `REDIS_SENTINELS`에서 현재 primary를 조회합니다. 연결을 다시 열 때마다 Sentinel을 조회하고 노드의 `ROLE`이 `master`인지 확인하므로 failover 뒤 SQL 행을 수동 갱신할 필요가 없습니다. Sentinel 인증을 쓰는 모든 환경은 `REDIS_SENTINEL_USER`/`REDIS_SENTINEL_PASSWORD`를 Redis와 BE에 함께 설정해야 합니다. 개발용 HA Compose는 `agora-redis-ha`를 `internal: true`로 격리하고 Redis·복제·Sentinel·클라이언트 연결에 CA 검증 TLS를 사용합니다. 같은 호스트의 BE/C++은 고정 Docker 사설 주소를 Sentinel seed로 사용합니다. 운영에서는 모든 Redis/Sentinel 주소가 앱·복제 호스트에서 도달 가능한 사설망 주소여야 하고, 신뢰되지 않은 망이나 인터넷 경로를 통과하지 않도록 라우팅·방화벽을 확인해야 합니다. 인증서는 각 연결 주소를 SAN에 포함해야 하며 BE/C++에는 신뢰 가능한 CA를 `REDIS_TLS_CA_CERT`로 제공합니다. 서버 인증서·개인 키·공개 CA는 직접 준비합니다. 운영에서 호스트 장애도 견디려면 Redis 노드와 Sentinel을 서로 다른 호스트에 분산하고, 각 노드가 서로 및 클라이언트에서 접근 가능한 주소를 광고하도록 배포해야 합니다. Redis 조회·정리 도구는 Sentinel HA 노드 중 현재 primary를 찾아 실행합니다.
 
 백엔드가 처리할 구체적인 연결 및 장애조치 요구 사항은 [백엔드 클러스터 전환 요구 사항](#백엔드-클러스터-전환-요구-사항)을 참고하세요.
 
@@ -377,12 +379,12 @@ tests/          저장소 통합 테스트
 
 이 저장소는 Project Agora의 일부이며 [MIT License](LICENSE)를 따릅니다.
 
-## 로컬 초기화의 OS 및 경로 의존성
+## 초기화와 실행 의존성
 
-macOS 기본 Bash 3.2/LibreSSL과 Linux Bash/OpenSSL을 지원하는 초기화 경로를 사용합니다. `prepare`는 새 Redis·Elasticsearch 환경 파일에 개발용 TLS를 준비하고, 기존 인증서를 자동 교체하지 않습니다. SQL Server 이미지는 `linux/amd64`로 고정되어 ARM 호스트에서는 Docker의 x86 에뮬레이션이 필요합니다. 운영 SQL Server는 지원되는 x86-64 Linux 환경에서 실행하세요.
+`prepare`는 TLS를 사용하는 환경 파일을 준비하고 인증서를 생성하거나 교체하지 않습니다. SQL Server 이미지는 `linux/amd64`로 고정되어 ARM 호스트에서는 Docker의 x86 에뮬레이션이 필요합니다. 운영 SQL Server는 지원되는 x86-64 Linux 환경에서 실행하세요.
 
 ```bash
-python3 ops/configure-db.py prepare
+python3 ops/configure-db.py prepare --tls-dir /path/to/certificates
 python3 ops/configure-db.py prepare-storage
 python3 ops/configure-db.py validate --profile development
 docker compose up -d --wait --wait-timeout 240
@@ -392,7 +394,7 @@ docker compose up -d --wait --wait-timeout 240
 ./elasticsearch/sync-elasticsearch-users.sh
 ```
 
-`prepare-storage`는 호스트 `sudo`·GNU `install` 대신 Elasticsearch Linux 이미지를 통해 snapshot 디렉터리 권한을 준비합니다. TLS 입력은 읽기 전용으로 마운트하고 `agora-elasticsearch-tls` 전용 볼륨으로 복사해 UID 1000/GID 0 권한을 적용하므로 호스트 개인 키 소유권은 유지됩니다. TLS helper는 Elasticsearch 기동 전에도 자동 실행됩니다. Docker 접근이 필요하며, 이미지 UID 변경 시 helper와 데이터 권한을 함께 조정해야 합니다. CA 개인 키는 컨테이너로 마운트하지 않는 `.dev-tls/`에 보관합니다. 사용자 지정 snapshot 경로는 Docker가 접근할 수 있는 디렉터리여야 합니다.
+`prepare-storage`는 Elasticsearch 컨테이너를 통해 snapshot 디렉터리 권한을 준비합니다. TLS 입력은 읽기 전용으로 마운트하고 `agora-elasticsearch-tls` 전용 볼륨으로 복사해 UID 1000/GID 0 권한을 적용하므로 호스트 개인 키 소유권은 유지됩니다. TLS helper는 Elasticsearch 기동 전에도 자동 실행됩니다. Docker 접근이 필요하며, 이미지 UID 변경 시 helper와 데이터 권한을 함께 조정해야 합니다. CA 개인 키는 컨테이너로 마운트하지 않는 `.dev-tls/`에 보관합니다. 사용자 지정 snapshot 경로는 Docker가 접근할 수 있는 디렉터리여야 합니다.
 
 Docker 노드가 실행 중이면 Redis 초기화는 호스트 `redis-cli` 설치 여부와 관계없이 컨테이너 CLI를 우선 사용합니다. 원격 Redis에 호스트 CLI로 연결할 때만 Sentinel이 광고하는 사설 IP로 호스트에서 접근할 수 있어야 합니다. 저장소 경로의 공백은 설정 생성·스크립트에서 따옴표로 보존합니다. 생성 설정에는 shell 확장 문자 `$`, backtick 및 개행을 허용하지 않습니다.
 

@@ -44,7 +44,7 @@ if [ -n "$ENV_FILE" ]; then
   ES_USER=$(grep -v '^#' "$ENV_FILE" | grep 'ES_USER_NAME=' | cut -d '=' -f2- | tr -d '\r' || echo "agora_user")
   ES_PASS=$(grep -v '^#' "$ENV_FILE" | grep 'ES_USER_PASSWORD=' | cut -d '=' -f2- | tr -d '\r' || echo "")
   ES_SCHEME=$(grep -v '^#' "$ENV_FILE" | grep '^ES_SCHEME=' | cut -d '=' -f2- | tr -d '\r' || true)
-  ES_HTTP_TLS_ENABLED=$(grep -v '^#' "$ENV_FILE" | grep '^ES_HTTP_TLS_ENABLED=' | cut -d '=' -f2- | tr -d '\r' || echo "false")
+  ES_HTTP_TLS_ENABLED=$(grep -v '^#' "$ENV_FILE" | grep '^ES_HTTP_TLS_ENABLED=' | cut -d '=' -f2- | tr -d '\r' || echo "true")
   ES_CA_CERT=$(grep -v '^#' "$ENV_FILE" | grep '^ES_CA_CERT=' | cut -d '=' -f2- | tr -d '\r' || true)
 else
   ES_IP="127.0.0.1"
@@ -53,7 +53,7 @@ else
   ES_USER="agora_user"
   ES_PASS=""
   ES_SCHEME=""
-  ES_HTTP_TLS_ENABLED="false"
+  ES_HTTP_TLS_ENABLED="true"
   ES_CA_CERT=""
 fi
 
@@ -63,10 +63,10 @@ if [ -n "$ES_SCHEME_OVERRIDE" ]; then ES_SCHEME="$ES_SCHEME_OVERRIDE"; fi
 if [ -n "$ES_TLS_OVERRIDE" ]; then ES_HTTP_TLS_ENABLED="$ES_TLS_OVERRIDE"; fi
 if [ -n "$ES_CA_CERT_OVERRIDE" ]; then ES_CA_CERT="$ES_CA_CERT_OVERRIDE"; fi
 if [ -z "$ES_SCHEME" ]; then
-  if [ "$ES_HTTP_TLS_ENABLED" = "true" ]; then ES_SCHEME="https"; else ES_SCHEME="http"; fi
+  ES_SCHEME="https"
 fi
-if [ "$ES_SCHEME" != "http" ] && [ "$ES_SCHEME" != "https" ]; then
-  echo "[ERROR] ES_SCHEME must be http or https." >&2
+if [ "$ES_SCHEME" != "https" ]; then
+  echo "[ERROR] ES_SCHEME must be https." >&2
   exit 1
 fi
 if [ "$ES_HTTP_TLS_ENABLED" = "true" ] && [ "$ES_SCHEME" != "https" ]; then
