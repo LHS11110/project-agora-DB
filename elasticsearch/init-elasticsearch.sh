@@ -120,6 +120,9 @@ if [ "$INDEX_EXISTS" = "200" ]; then
         "admin-user-id": {
           "type": "long"
         },
+        "visibility": {
+          "type": "keyword"
+        },
         "description": {
           "type": "text"
         },
@@ -198,6 +201,9 @@ if [ "$INDEX_EXISTS" != "200" ]; then
         },
         "canvas-id": {
           "type": "long"
+        },
+        "visibility": {
+          "type": "keyword"
         },
         "admin-user-id": {
           "type": "long"
