@@ -561,6 +561,19 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_$(TABLE_CANVAS_INFO)_c
     CREATE NONCLUSTERED INDEX [IX_$(TABLE_CANVAS_INFO)_cpp_server] ON [$(TABLE_CANVAS_INFO)] (cpp_server_id);
 GO
 
+-- Durable VM cleanup tasks survive canvas deletion and backend restarts.
+IF OBJECT_ID(N'dbo.canvas_runtime_cleanup',N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.canvas_runtime_cleanup (
+        canvas_id INT NOT NULL PRIMARY KEY,
+        created_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+        attempt_count INT NOT NULL DEFAULT 0,
+        next_attempt_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+    );
+    CREATE INDEX IX_canvas_runtime_cleanup_due ON dbo.canvas_runtime_cleanup(next_attempt_at,canvas_id);
+END;
+GO
+
 -- Backend SQL is limited to row-level DML. Schema migrations and account
 -- management continue to run through the administrator-only init path.
 IF DATABASE_PRINCIPAL_ID('agora_runtime') IS NULL
