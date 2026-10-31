@@ -589,3 +589,20 @@ SELECT USER_NAME() AS runtime_user, IS_ROLEMEMBER('agora_runtime', '$(DB_USER)')
        IS_ROLEMEMBER('db_owner', '$(DB_USER)') AS is_db_owner;
 SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE';
 GO
+
+-- One Google (or future vendor) identity can belong to only one FreLog user.
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+SET ANSI_PADDING ON;
+SET ANSI_WARNINGS ON;
+SET ARITHABORT ON;
+SET CONCAT_NULL_YIELDS_NULL ON;
+SET NUMERIC_ROUNDABORT OFF;
+SET XACT_ABORT ON;
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'[$(TABLE_USERS)]') AND name = N'UX_$(TABLE_USERS)_OAuthIdentity')
+BEGIN
+    CREATE UNIQUE NONCLUSTERED INDEX [UX_$(TABLE_USERS)_OAuthIdentity]
+      ON [$(TABLE_USERS)] (oauth_provider, oauth_id)
+      WHERE oauth_provider IS NOT NULL AND oauth_id IS NOT NULL;
+END;
+GO

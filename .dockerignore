@@ -10,3 +10,13 @@
 **/backups
 **/*.key
 **/*.pem
+
+# Local authentication material must not enter build contexts
+.envrc
+.envrc.*
+.netrc
+.pypirc
+**/client_secret*.json
+**/service-account*.json
+**/application_default_credentials.json
+**/.ssh/

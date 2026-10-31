@@ -123,3 +123,27 @@ certificates/
 *.sqlite
 *.sqlite3
 *.db
+
+# Local authentication files and generated audit/test artifacts
+.envrc
+.envrc.*
+!.envrc.example
+!.env.*.example
+!.env.sample
+!.env.template
+.netrc
+.pypirc
+client_secret*.json
+service-account*.json
+application_default_credentials.json
+.ssh/
+id_rsa
+id_ed25519
+.mypy_cache/
+.ruff_cache/
+coverage/
+test-results/
+playwright-report/
+*.sql.gz
+*.rdb
+appendonlydir/
