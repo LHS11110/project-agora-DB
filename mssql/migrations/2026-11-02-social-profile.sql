@@ -1,0 +1,14 @@
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+SET ANSI_PADDING ON;
+SET ANSI_WARNINGS ON;
+SET ARITHABORT ON;
+SET CONCAT_NULL_YIELDS_NULL ON;
+SET NUMERIC_ROUNDABORT OFF;
+SET XACT_ABORT ON;
+-- Local, normalized avatar location only; never store vendor access tokens or remote signed URLs.
+IF COL_LENGTH(N'[$(TABLE_USERS)]',N'profile_image_url') IS NULL
+ ALTER TABLE [$(TABLE_USERS)] ADD profile_image_url NVARCHAR(512) NULL;
+GO
+UPDATE [$(TABLE_USERS)] SET profile_image_url=NULL WHERE status='WITHDRAWN';
+GO

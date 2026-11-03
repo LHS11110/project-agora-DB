@@ -145,7 +145,7 @@ BEGIN
         role                 NVARCHAR(20)      NOT NULL DEFAULT 'ROLE_USER', -- 기본 ROLE_USER (관리자 ROLE_ADMIN)
         status               NVARCHAR(20)      NOT NULL DEFAULT 'ACTIVE',    -- ACTIVE, SUSPENDED, WITHDRAWN
         oauth_provider       NVARCHAR(50)      NULL,                  -- OAuth 제공자 (NULL 가능)
-        oauth_id             NVARCHAR(255)     NULL,                  -- 제공자별 고유 회원 식별자 (NULL 가능)
+        oauth_id             NVARCHAR(255) COLLATE Latin1_General_100_BIN2 NULL,                  -- 제공자별 고유 회원 식별자 (NULL 가능)
         password_changed_at  DATETIME2         NULL,                  -- 비밀번호 변경 시간 (NULL 가능)
         created_at           DATETIME2         NOT NULL DEFAULT SYSUTCDATETIME(),
         updated_at           DATETIME2         NOT NULL DEFAULT SYSUTCDATETIME(),
@@ -155,7 +155,7 @@ BEGIN
         CONSTRAINT [CK_$(TABLE_USERS)_Status] CHECK (status IN ('ACTIVE', 'SUSPENDED', 'WITHDRAWN')),
         CONSTRAINT [CK_$(TABLE_USERS)_Role] CHECK (role IN ('ROLE_USER', 'ROLE_ADMIN')),
         CONSTRAINT [CK_$(TABLE_USERS)_Nickname] CHECK (LEN(LTRIM(RTRIM(nickname))) > 0),
-        CONSTRAINT [CK_$(TABLE_USERS)_Auth] CHECK (password_hash IS NOT NULL OR (oauth_provider IS NOT NULL AND oauth_id IS NOT NULL))
+        CONSTRAINT [CK_$(TABLE_USERS)_Auth] CHECK (status = 'WITHDRAWN' OR password_hash IS NOT NULL OR (oauth_provider IS NOT NULL AND oauth_id IS NOT NULL))
     );
 END
 ELSE
@@ -266,7 +266,7 @@ BEGIN
     -- 인증 무결성 제약조건 추가
     IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_$(TABLE_USERS)_Auth')
     BEGIN
-        ALTER TABLE [$(TABLE_USERS)] ADD CONSTRAINT [CK_$(TABLE_USERS)_Auth] CHECK (password_hash IS NOT NULL OR (oauth_provider IS NOT NULL AND oauth_id IS NOT NULL));
+        ALTER TABLE [$(TABLE_USERS)] ADD CONSTRAINT [CK_$(TABLE_USERS)_Auth] CHECK (status = 'WITHDRAWN' OR password_hash IS NOT NULL OR (oauth_provider IS NOT NULL AND oauth_id IS NOT NULL));
     END;
     
     -- role 제약조건 임시 해제 후 타입 변경 및 제약조건 재설정
@@ -604,5 +604,233 @@ BEGIN
     CREATE UNIQUE NONCLUSTERED INDEX [UX_$(TABLE_USERS)_OAuthIdentity]
       ON [$(TABLE_USERS)] (oauth_provider, oauth_id)
       WHERE oauth_provider IS NOT NULL AND oauth_id IS NOT NULL;
+END;
+GO
+
+-- Optional account TOTP; seeds encrypted by application, recovery codes hashed.
+SET XACT_ABORT ON;
+IF OBJECT_ID(N'dbo.user_mfa', N'U') IS NULL
+BEGIN
+ CREATE TABLE dbo.user_mfa (
+  user_id INT NOT NULL PRIMARY KEY REFERENCES [$(TABLE_USERS)](user_id),
+  enabled BIT NOT NULL DEFAULT 0,
+  secret VARCHAR(512) NULL,
+  pending_secret VARCHAR(512) NULL,
+  pending_expires DATETIME2 NULL,
+  last_step BIGINT NOT NULL DEFAULT -1,
+  version VARCHAR(36) NULL,
+  recovery_hashes VARCHAR(2048) NULL,
+  failures INT NOT NULL DEFAULT 0,
+  locked_until DATETIME2 NULL,
+  CONSTRAINT CK_UserMfa_Enabled CHECK (enabled=0 OR (secret IS NOT NULL AND version IS NOT NULL))
+ );
+END;
+IF OBJECT_ID(N'dbo.auth_mfa_challenges', N'U') IS NULL
+BEGIN
+ CREATE TABLE dbo.auth_mfa_challenges (
+  id VARCHAR(64) NOT NULL PRIMARY KEY,
+  user_id INT NOT NULL REFERENCES [$(TABLE_USERS)](user_id),
+  version VARCHAR(36) NULL,
+  client_ip VARCHAR(64) NULL,
+  expires_at DATETIME2 NULL,
+  used BIT NOT NULL DEFAULT 0
+ );
+ CREATE INDEX IX_MfaChallenge_Expires ON dbo.auth_mfa_challenges(expires_at);
+END;
+GRANT SELECT, INSERT, UPDATE, DELETE ON dbo.user_mfa TO [$(DB_USER)];
+GRANT SELECT, INSERT, UPDATE, DELETE ON dbo.auth_mfa_challenges TO [$(DB_USER)];
+GO
+
+-- Registration ownership proof: no account is created until a grant is consumed.
+SET XACT_ABORT ON;
+IF OBJECT_ID(N'dbo.auth_email_verification',N'U') IS NULL
+BEGIN
+ CREATE TABLE dbo.auth_email_verification (
+  email NVARCHAR(255) NOT NULL PRIMARY KEY,
+  challenge_hash VARCHAR(64) NULL,
+  code_hash VARCHAR(64) NULL,
+  expires_at DATETIME2 NULL,
+  attempts INT NOT NULL DEFAULT 0,
+  last_sent_at DATETIME2 NULL,
+  window_start DATETIME2 NULL,
+  sends INT NOT NULL DEFAULT 0,
+  grant_hash VARCHAR(64) NULL,
+  grant_expires_at DATETIME2 NULL,
+  consumed BIT NOT NULL DEFAULT 0
+ );
+ CREATE INDEX IX_EmailProof_Expires ON dbo.auth_email_verification(expires_at);
+END;
+IF OBJECT_ID(N'dbo.auth_email_ip_quota',N'U') IS NULL
+BEGIN
+ CREATE TABLE dbo.auth_email_ip_quota (
+  id VARCHAR(64) NOT NULL PRIMARY KEY,
+  window_start DATETIME2 NULL,
+  sends INT NOT NULL DEFAULT 0
+ );
+END;
+GRANT SELECT, INSERT, UPDATE, DELETE ON dbo.auth_email_verification TO [$(DB_USER)];
+GRANT SELECT, INSERT, UPDATE, DELETE ON dbo.auth_email_ip_quota TO [$(DB_USER)];
+GO
+
+IF COL_LENGTH(N'[$(TABLE_USERS)]', N'email_verified_at') IS NULL
+ ALTER TABLE [$(TABLE_USERS)] ADD email_verified_at DATETIME2 NULL;
+GO
+
+-- Withdrawn users retain historical references but no longer need login credentials.
+-- Active and suspended accounts must still have password or OAuth credentials.
+SET XACT_ABORT ON;
+BEGIN TRANSACTION;
+IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE parent_object_id=OBJECT_ID(N'[$(TABLE_USERS)]') AND name=N'CK_$(TABLE_USERS)_Auth')
+    ALTER TABLE [$(TABLE_USERS)] DROP CONSTRAINT [CK_$(TABLE_USERS)_Auth];
+ALTER TABLE [$(TABLE_USERS)] WITH CHECK ADD CONSTRAINT [CK_$(TABLE_USERS)_Auth]
+    CHECK (status = 'WITHDRAWN' OR password_hash IS NOT NULL OR (oauth_provider IS NOT NULL AND oauth_id IS NOT NULL));
+COMMIT TRANSACTION;
+GO
+
+-- WebAuthn public credentials only. Private keys and biometrics never reach this database.
+SET XACT_ABORT ON;
+IF OBJECT_ID(N'dbo.user_passkeys', N'U') IS NULL
+BEGIN
+ CREATE TABLE dbo.user_passkeys (
+  id VARCHAR(36) NOT NULL PRIMARY KEY,
+  credential_hash VARCHAR(64) NOT NULL UNIQUE,
+  credential_id VARCHAR(2048) NOT NULL,
+  user_id INT NOT NULL REFERENCES dbo.[$(TABLE_USERS)](user_id),
+  user_handle VARCHAR(64) NOT NULL,
+  public_key VARCHAR(4096) NOT NULL,
+  signature_count BIGINT NOT NULL,
+  name NVARCHAR(80) NOT NULL,
+  created_at DATETIME2 NOT NULL,
+  last_used_at DATETIME2 NULL
+ );
+ CREATE INDEX IX_user_passkeys_user ON dbo.user_passkeys(user_id,created_at);
+ CREATE INDEX IX_user_passkeys_handle ON dbo.user_passkeys(user_handle);
+END;
+IF OBJECT_ID(N'dbo.auth_passkey_challenges', N'U') IS NULL
+BEGIN
+ CREATE TABLE dbo.auth_passkey_challenges (
+  id VARCHAR(64) NOT NULL PRIMARY KEY,
+  purpose VARCHAR(12) NOT NULL,
+  user_id INT NULL REFERENCES dbo.[$(TABLE_USERS)](user_id),
+  client_ip VARCHAR(64) NOT NULL,
+  request_json VARCHAR(MAX) NOT NULL,
+  created_at DATETIME2 NOT NULL,
+  expires_at DATETIME2 NOT NULL,
+  used BIT NOT NULL DEFAULT 0
+ );
+ CREATE INDEX IX_passkey_challenge_expiry ON dbo.auth_passkey_challenges(expires_at);
+ CREATE INDEX IX_passkey_challenge_ip ON dbo.auth_passkey_challenges(client_ip,created_at);
+END;
+GO
+
+-- Provider subjects are opaque, case-sensitive strings (not email addresses).
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+SET ANSI_PADDING ON;
+SET ANSI_WARNINGS ON;
+SET ARITHABORT ON;
+SET CONCAT_NULL_YIELDS_NULL ON;
+SET NUMERIC_ROUNDABORT OFF;
+SET XACT_ABORT ON;
+IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID(N'[$(TABLE_USERS)]') AND name=N'oauth_id' AND collation_name<>N'Latin1_General_100_BIN2')
+BEGIN
+ BEGIN TRANSACTION;
+ IF EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'[$(TABLE_USERS)]') AND name=N'IX_$(TABLE_USERS)_OAuth')
+  DROP INDEX [IX_$(TABLE_USERS)_OAuth] ON [$(TABLE_USERS)];
+ IF EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'[$(TABLE_USERS)]') AND name=N'UX_$(TABLE_USERS)_OAuthIdentity')
+  DROP INDEX [UX_$(TABLE_USERS)_OAuthIdentity] ON [$(TABLE_USERS)];
+ IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE parent_object_id=OBJECT_ID(N'[$(TABLE_USERS)]') AND name=N'CK_$(TABLE_USERS)_Auth')
+  ALTER TABLE [$(TABLE_USERS)] DROP CONSTRAINT [CK_$(TABLE_USERS)_Auth];
+ ALTER TABLE [$(TABLE_USERS)] ALTER COLUMN oauth_id NVARCHAR(255) COLLATE Latin1_General_100_BIN2 NULL;
+ ALTER TABLE [$(TABLE_USERS)] WITH CHECK ADD CONSTRAINT [CK_$(TABLE_USERS)_Auth]
+  CHECK (status='WITHDRAWN' OR password_hash IS NOT NULL OR (oauth_provider IS NOT NULL AND oauth_id IS NOT NULL));
+ CREATE NONCLUSTERED INDEX [IX_$(TABLE_USERS)_OAuth] ON [$(TABLE_USERS)] (oauth_provider,oauth_id) WHERE oauth_provider IS NOT NULL;
+ CREATE UNIQUE NONCLUSTERED INDEX [UX_$(TABLE_USERS)_OAuthIdentity] ON [$(TABLE_USERS)] (oauth_provider,oauth_id) WHERE oauth_provider IS NOT NULL AND oauth_id IS NOT NULL;
+ COMMIT TRANSACTION;
+END;
+GO
+
+-- Irreversibly anonymize withdrawn accounts; active accounts are not modified.
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+SET ANSI_PADDING ON;
+SET ANSI_WARNINGS ON;
+SET ARITHABORT ON;
+SET CONCAT_NULL_YIELDS_NULL ON;
+SET NUMERIC_ROUNDABORT OFF;
+SET XACT_ABORT ON;
+BEGIN TRANSACTION;
+IF EXISTS(SELECT 1 FROM sys.key_constraints WHERE parent_object_id=OBJECT_ID(N'[$(TABLE_USERS)]') AND name=N'UQ_Users_Email')
+ ALTER TABLE [$(TABLE_USERS)] DROP CONSTRAINT [UQ_Users_Email];
+IF EXISTS(SELECT 1 FROM sys.key_constraints WHERE parent_object_id=OBJECT_ID(N'[$(TABLE_USERS)]') AND name=N'UQ_$(TABLE_USERS)_Email')
+ ALTER TABLE [$(TABLE_USERS)] DROP CONSTRAINT [UQ_$(TABLE_USERS)_Email];
+IF EXISTS(SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'[$(TABLE_USERS)]') AND name=N'UQ_Users_Email')
+ DROP INDEX [UQ_Users_Email] ON [$(TABLE_USERS)];
+ALTER TABLE [$(TABLE_USERS)] ALTER COLUMN email NVARCHAR(255) NULL;
+CREATE UNIQUE NONCLUSTERED INDEX [UQ_Users_Email] ON [$(TABLE_USERS)](email) WHERE email IS NOT NULL;
+IF OBJECT_ID(N'dbo.auth_email_verification',N'U') IS NOT NULL
+ DELETE p FROM dbo.auth_email_verification p JOIN [$(TABLE_USERS)] u ON p.email=u.email WHERE u.status='WITHDRAWN';
+IF OBJECT_ID(N'dbo.auth_mfa_challenges',N'U') IS NOT NULL
+ DELETE p FROM dbo.auth_mfa_challenges p JOIN [$(TABLE_USERS)] u ON p.user_id=u.user_id WHERE u.status='WITHDRAWN';
+IF OBJECT_ID(N'dbo.user_mfa',N'U') IS NOT NULL
+ DELETE p FROM dbo.user_mfa p JOIN [$(TABLE_USERS)] u ON p.user_id=u.user_id WHERE u.status='WITHDRAWN';
+IF OBJECT_ID(N'dbo.auth_passkey_challenges',N'U') IS NOT NULL
+ DELETE p FROM dbo.auth_passkey_challenges p JOIN [$(TABLE_USERS)] u ON p.user_id=u.user_id WHERE u.status='WITHDRAWN';
+IF OBJECT_ID(N'dbo.user_passkeys',N'U') IS NOT NULL
+ DELETE p FROM dbo.user_passkeys p JOIN [$(TABLE_USERS)] u ON p.user_id=u.user_id WHERE u.status='WITHDRAWN';
+IF OBJECT_ID(N'dbo.user_sessions',N'U') IS NOT NULL
+ DELETE p FROM dbo.user_sessions p JOIN [$(TABLE_USERS)] u ON p.user_id=u.user_id WHERE u.status='WITHDRAWN';
+UPDATE [$(TABLE_USERS)] SET email=NULL,password_hash=NULL,oauth_provider=NULL,oauth_id=NULL,
+ email_verified_at=NULL,password_changed_at=NULL,nickname=N'삭제된 계정',tag_number=user_id,role='ROLE_USER'
+ WHERE status='WITHDRAWN';
+IF NOT EXISTS(SELECT 1 FROM sys.check_constraints WHERE parent_object_id=OBJECT_ID(N'[$(TABLE_USERS)]') AND name=N'CK_$(TABLE_USERS)_EmailRequired')
+ ALTER TABLE [$(TABLE_USERS)] WITH CHECK ADD CONSTRAINT [CK_$(TABLE_USERS)_EmailRequired] CHECK(status='WITHDRAWN' OR email IS NOT NULL);
+COMMIT TRANSACTION;
+GO
+
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+SET ANSI_PADDING ON;
+SET ANSI_WARNINGS ON;
+SET ARITHABORT ON;
+SET CONCAT_NULL_YIELDS_NULL ON;
+SET NUMERIC_ROUNDABORT OFF;
+SET XACT_ABORT ON;
+-- Local, normalized avatar location only; never store vendor access tokens or remote signed URLs.
+IF COL_LENGTH(N'[$(TABLE_USERS)]',N'profile_image_url') IS NULL
+ ALTER TABLE [$(TABLE_USERS)] ADD profile_image_url NVARCHAR(512) NULL;
+GO
+UPDATE [$(TABLE_USERS)] SET profile_image_url=NULL WHERE status='WITHDRAWN';
+GO
+
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+SET ANSI_PADDING ON;
+SET ANSI_WARNINGS ON;
+SET ARITHABORT ON;
+SET CONCAT_NULL_YIELDS_NULL ON;
+SET NUMERIC_ROUNDABORT OFF;
+SET XACT_ABORT ON;
+IF OBJECT_ID(N'dbo.auth_qr_logins',N'U') IS NULL
+BEGIN
+ CREATE TABLE dbo.auth_qr_logins (
+  id VARCHAR(36) NOT NULL PRIMARY KEY,
+  poll_hash VARCHAR(64) NOT NULL,
+  approve_hash VARCHAR(64) NOT NULL,
+  browser_hash VARCHAR(64) NOT NULL,
+  display_code VARCHAR(6) NOT NULL,
+  requester_ip VARCHAR(64) NOT NULL,
+  device_label VARCHAR(120) NOT NULL,
+  status VARCHAR(12) NOT NULL,
+  created_at DATETIME2 NOT NULL,
+  expires_at DATETIME2 NOT NULL,
+  last_poll DATETIME2 NULL,
+  user_id INT NULL REFERENCES dbo.[$(TABLE_USERS)](user_id),
+  mfa_version VARCHAR(36) NULL,
+  failures INT NOT NULL DEFAULT 0
+ );
+ CREATE INDEX IX_QrLogin_IpCreated ON dbo.auth_qr_logins(requester_ip,created_at);
+ CREATE INDEX IX_QrLogin_Expiry ON dbo.auth_qr_logins(expires_at);
+ CREATE INDEX IX_QrLogin_User ON dbo.auth_qr_logins(user_id);
 END;
 GO

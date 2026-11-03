@@ -232,6 +232,10 @@ if [ "$INDEX_EXISTS" != "200" ]; then
   echo -e "\n[OK] 인덱스($INDEX_NAME) 매핑 생성 완료 (초기 데이터 미삽입)"
 fi
 
+# Keep per-canvas group names in _source without expanding the cluster mapping.
+curl_es -fsS -X PUT "$ES_HOST/$INDEX_NAME/_mapping" \
+  -H 'Content-Type: application/json' -d '{"properties":{"group-permissions":{"type":"object","enabled":false},"group-bits":{"type":"object","enabled":false}}}'
+
 echo -e "\n=== 4. 로그 전용 역할($LOG_ROLE) 생성 ==="
 curl_es -s -f -u "$ES_SUPER_USER:$ES_SUPER_PASS" -X PUT "$ES_HOST/_security/role/$LOG_ROLE" \
      -H 'Content-Type: application/json' \
