@@ -193,6 +193,19 @@ services:
       RI_SERVER_TLS_KEY: /run/tls/privkey.pem
       RI_SERVER_TLS_CERT: /run/tls/fullchain.pem
     image: redis/redisinsight:3.8.0
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          const https=require('https'),fs=require('fs');
+          const r=https.get({hostname:'localhost',port:5540,path:'/api/health/',ca:fs.readFileSync('/run/tls/ca.pem')},res=>{res.resume();process.exitCode=res.statusCode===200?0:1});
+          r.on('error',()=>{process.exitCode=1});r.setTimeout(5000,()=>r.destroy());
+      interval: 10s
+      timeout: 7s
+      retries: 12
+      start_period: 20s
     restart: unless-stopped
     ports:
       - "${REDIS_INSIGHT_BIND_IP:-127.0.0.1}:${REDIS_INSIGHT_PORT:-8001}:5540"
@@ -201,7 +214,7 @@ services:
       - redis-insight-tls:/run/tls:ro
     networks:
       redis-ha:
-        ipv4_address: ${REDIS_INSIGHT_IP:-172.20.0.8}
+        ipv4_address: ${REDIS_INSIGHT_IP:-172.20.0.20}
       redis-insight-access: {}
 
 volumes:
