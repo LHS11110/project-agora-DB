@@ -308,7 +308,19 @@ BEGIN
     IF EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_$(TABLE_USERS)_OAuth' AND object_id = OBJECT_ID('$(TABLE_USERS)'))
         DROP INDEX [IX_$(TABLE_USERS)_OAuth] ON [$(TABLE_USERS)];
 
-    ALTER TABLE [$(TABLE_USERS)] ALTER COLUMN oauth_provider NVARCHAR(50) NULL;
+    -- Avoid ALTER COLUMN when the schema is already correct: SQL Server rejects
+    -- the no-op alteration while the unique OAuth identity index depends on it.
+    IF EXISTS (
+        SELECT 1 FROM sys.columns
+        WHERE object_id = OBJECT_ID('$(TABLE_USERS)')
+          AND name = 'oauth_provider'
+          AND (system_type_id <> 231 OR max_length <> 100 OR is_nullable <> 1)
+    )
+    BEGIN
+        IF EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_$(TABLE_USERS)_OAuthIdentity' AND object_id = OBJECT_ID('$(TABLE_USERS)'))
+            DROP INDEX [UX_$(TABLE_USERS)_OAuthIdentity] ON [$(TABLE_USERS)];
+        ALTER TABLE [$(TABLE_USERS)] ALTER COLUMN oauth_provider NVARCHAR(50) NULL;
+    END;
 
     -- UQ_Users_Email 인덱스/제약조건 이름 동기화
     IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UQ_Users_Email' AND object_id = OBJECT_ID('$(TABLE_USERS)'))
@@ -547,7 +559,6 @@ BEGIN
         UNIQUE NONCLUSTERED (server_ip, server_port);
 END;
 GO
-
 -- 세션 정리 및 서버 장애 복구 쿼리에 필요한 인덱스.
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_user_sessions_canvas_accessed' AND object_id = OBJECT_ID('user_sessions'))
     CREATE NONCLUSTERED INDEX [IX_user_sessions_canvas_accessed] ON [user_sessions] (canvas_id, is_accessed);
