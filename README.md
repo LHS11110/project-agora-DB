@@ -413,3 +413,7 @@ python3 -m unittest discover -s tests -p test_local_runtime.py
 ## IRADE ORCID identity
 
 `mssql/migrations/2026-11-13-irade-orcid.sql` is an additive administrator migration, also included in initial setup. It adds nullable `users.orcid` / `orcid_issuer` fields, a filtered composite unique index separating production and sandbox identities, and the expiring `auth_orcid_attempts` state table. It does not link any existing account or modify existing workspace data. Apply after a verified backup and before deploying the corresponding Spring version. Researcher identifiers are populated only after the Spring server verifies the ORCID OAuth authorization-code exchange; a manually entered ORCID is not authentication proof.
+
+ORCID 전용 계정에는 `mssql/migrations/2026-11-13-orcid-account-constraints.sql`도 필수입니다. 기존 인증·이메일 필수 CHECK를 ORCID 식별자와 공식 issuer가 있는 계정에 맞게 갱신하며, 일반 계정의 기존 필수 조건은 유지합니다. `init-mssql.sql`에 같은 규칙과 재실행 보호를 포함했습니다.
+
+실제 SQL Server 회귀 검증: `python3 mssql/tests/test-irade-orcid-constraints.py`. 기존 제약 조건으로 실패를 재현한 뒤 수정, 일반 계정 무결성, ORCID 중복·issuer 분리, 탈퇴 후 재가입과 초기화 업그레이드 블록 재실행을 검증합니다. 독립된 임시 DB를 생성하고 삭제하며 운영 사용자 데이터를 사용하지 않습니다.

@@ -265,6 +265,7 @@ BEGIN
 
     -- 인증 무결성 제약조건 추가
     IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_$(TABLE_USERS)_Auth')
+       AND COL_LENGTH(N'[$(TABLE_USERS)]',N'orcid') IS NULL
     BEGIN
         ALTER TABLE [$(TABLE_USERS)] ADD CONSTRAINT [CK_$(TABLE_USERS)_Auth] CHECK (status = 'WITHDRAWN' OR password_hash IS NOT NULL OR (oauth_provider IS NOT NULL AND oauth_id IS NOT NULL));
     END;
@@ -690,12 +691,16 @@ GO
 -- Withdrawn users retain historical references but no longer need login credentials.
 -- Active and suspended accounts must still have password or OAuth credentials.
 SET XACT_ABORT ON;
+-- A rerun must not replace the ORCID-aware constraint with the legacy rule.
+IF COL_LENGTH(N'[$(TABLE_USERS)]',N'orcid') IS NULL
+BEGIN
 BEGIN TRANSACTION;
 IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE parent_object_id=OBJECT_ID(N'[$(TABLE_USERS)]') AND name=N'CK_$(TABLE_USERS)_Auth')
     ALTER TABLE [$(TABLE_USERS)] DROP CONSTRAINT [CK_$(TABLE_USERS)_Auth];
 ALTER TABLE [$(TABLE_USERS)] WITH CHECK ADD CONSTRAINT [CK_$(TABLE_USERS)_Auth]
     CHECK (status = 'WITHDRAWN' OR password_hash IS NOT NULL OR (oauth_provider IS NOT NULL AND oauth_id IS NOT NULL));
 COMMIT TRANSACTION;
+END;
 GO
 
 -- WebAuthn public credentials only. Private keys and biometrics never reach this database.
@@ -753,6 +758,12 @@ BEGIN
  IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE parent_object_id=OBJECT_ID(N'[$(TABLE_USERS)]') AND name=N'CK_$(TABLE_USERS)_Auth')
   ALTER TABLE [$(TABLE_USERS)] DROP CONSTRAINT [CK_$(TABLE_USERS)_Auth];
  ALTER TABLE [$(TABLE_USERS)] ALTER COLUMN oauth_id NVARCHAR(255) COLLATE Latin1_General_100_BIN2 NULL;
+ IF COL_LENGTH(N'[$(TABLE_USERS)]',N'orcid') IS NOT NULL
+  EXEC(N'ALTER TABLE [$(TABLE_USERS)] WITH CHECK ADD CONSTRAINT [CK_$(TABLE_USERS)_Auth]
+   CHECK (status=''WITHDRAWN'' OR password_hash IS NOT NULL OR (oauth_provider IS NOT NULL AND oauth_id IS NOT NULL)
+    OR (orcid IS NOT NULL AND LEN(orcid)=19 AND orcid_issuer IS NOT NULL
+        AND orcid_issuer IN (''https://orcid.org'',''https://sandbox.orcid.org'')))');
+ ELSE
  ALTER TABLE [$(TABLE_USERS)] WITH CHECK ADD CONSTRAINT [CK_$(TABLE_USERS)_Auth]
   CHECK (status='WITHDRAWN' OR password_hash IS NOT NULL OR (oauth_provider IS NOT NULL AND oauth_id IS NOT NULL));
  CREATE NONCLUSTERED INDEX [IX_$(TABLE_USERS)_OAuth] ON [$(TABLE_USERS)] (oauth_provider,oauth_id) WHERE oauth_provider IS NOT NULL;
@@ -795,6 +806,7 @@ UPDATE [$(TABLE_USERS)] SET email=NULL,password_hash=NULL,oauth_provider=NULL,oa
  email_verified_at=NULL,password_changed_at=NULL,nickname=N'삭제된 계정',tag_number=user_id,role='ROLE_USER'
  WHERE status='WITHDRAWN';
 IF NOT EXISTS(SELECT 1 FROM sys.check_constraints WHERE parent_object_id=OBJECT_ID(N'[$(TABLE_USERS)]') AND name=N'CK_$(TABLE_USERS)_EmailRequired')
+ AND COL_LENGTH(N'[$(TABLE_USERS)]',N'orcid') IS NULL
  ALTER TABLE [$(TABLE_USERS)] WITH CHECK ADD CONSTRAINT [CK_$(TABLE_USERS)_EmailRequired] CHECK(status='WITHDRAWN' OR email IS NOT NULL);
 COMMIT TRANSACTION;
 GO
@@ -874,4 +886,38 @@ BEGIN
  );
  CREATE INDEX IX_OrcidAttempt_Expiry ON dbo.auth_orcid_attempts(expires_at);
 END;
+GO
+
+-- Permit authenticated ORCID-only accounts while preserving email requirements
+-- for ordinary password/social accounts and the existing erasure exception.
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+SET ANSI_PADDING ON;
+SET ANSI_WARNINGS ON;
+SET ARITHABORT ON;
+SET CONCAT_NULL_YIELDS_NULL ON;
+SET NUMERIC_ROUNDABORT OFF;
+SET XACT_ABORT ON;
+IF COL_LENGTH(N'[$(TABLE_USERS)]',N'orcid') IS NULL
+ OR COL_LENGTH(N'[$(TABLE_USERS)]',N'orcid_issuer') IS NULL
+ THROW 51000, 'Apply the IRADE ORCID identity migration first', 1;
+BEGIN TRANSACTION;
+IF EXISTS(SELECT 1 FROM sys.check_constraints WHERE parent_object_id=OBJECT_ID(N'[$(TABLE_USERS)]') AND name=N'CK_$(TABLE_USERS)_Auth')
+ ALTER TABLE [$(TABLE_USERS)] DROP CONSTRAINT [CK_$(TABLE_USERS)_Auth];
+IF EXISTS(SELECT 1 FROM sys.check_constraints WHERE parent_object_id=OBJECT_ID(N'[$(TABLE_USERS)]') AND name=N'CK_$(TABLE_USERS)_EmailRequired')
+ ALTER TABLE [$(TABLE_USERS)] DROP CONSTRAINT [CK_$(TABLE_USERS)_EmailRequired];
+ALTER TABLE [$(TABLE_USERS)] WITH CHECK ADD CONSTRAINT [CK_$(TABLE_USERS)_Auth]
+ CHECK (
+  status='WITHDRAWN' OR password_hash IS NOT NULL
+  OR (oauth_provider IS NOT NULL AND oauth_id IS NOT NULL)
+  OR (orcid IS NOT NULL AND LEN(orcid)=19 AND orcid_issuer IS NOT NULL
+      AND orcid_issuer IN ('https://orcid.org','https://sandbox.orcid.org'))
+ );
+ALTER TABLE [$(TABLE_USERS)] WITH CHECK ADD CONSTRAINT [CK_$(TABLE_USERS)_EmailRequired]
+ CHECK (
+  status='WITHDRAWN' OR email IS NOT NULL
+  OR (orcid IS NOT NULL AND LEN(orcid)=19 AND orcid_issuer IS NOT NULL
+      AND orcid_issuer IN ('https://orcid.org','https://sandbox.orcid.org'))
+ );
+COMMIT TRANSACTION;
 GO
