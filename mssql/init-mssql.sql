@@ -586,6 +586,51 @@ BEGIN
 END;
 GO
 
+-- Separate IRADE workspaces from Agora Canvas metadata and durable runtime cleanup queues.
+IF OBJECT_ID(N'dbo.workspace_info', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.workspace_info (
+        workspace_id  INT       IDENTITY(1,1) NOT NULL,
+        redis_id      INT       NULL,
+        cpp_server_id INT       NULL,
+        is_cached     BIT       NOT NULL DEFAULT 0,
+        created_at    DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+        updated_at    DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT PK_workspace_info PRIMARY KEY CLUSTERED (workspace_id),
+        CONSTRAINT [FK_workspace_info_$(TABLE_REDIS_SERVER)] FOREIGN KEY (redis_id)
+            REFERENCES [$(TABLE_REDIS_SERVER)] (redis_id)
+            ON DELETE NO ACTION
+            ON UPDATE NO ACTION,
+        CONSTRAINT [FK_workspace_info_$(TABLE_CPP_SERVER)] FOREIGN KEY (cpp_server_id)
+            REFERENCES [$(TABLE_CPP_SERVER)] (server_id)
+            ON DELETE NO ACTION
+            ON UPDATE NO ACTION
+    );
+END;
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE name = 'IX_workspace_info_cpp_server'
+      AND object_id = OBJECT_ID(N'dbo.workspace_info')
+)
+    CREATE NONCLUSTERED INDEX IX_workspace_info_cpp_server
+        ON dbo.workspace_info (cpp_server_id);
+GO
+
+IF OBJECT_ID(N'dbo.workspace_runtime_cleanup', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.workspace_runtime_cleanup (
+        workspace_id     INT       NOT NULL PRIMARY KEY,
+        created_at       DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+        attempt_count    INT       NOT NULL DEFAULT 0,
+        next_attempt_at  DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+    );
+    CREATE INDEX IX_workspace_runtime_cleanup_due
+        ON dbo.workspace_runtime_cleanup (next_attempt_at, workspace_id);
+END;
+GO
+
 -- Backend SQL is limited to row-level DML. Schema migrations and account
 -- management continue to run through the administrator-only init path.
 IF DATABASE_PRINCIPAL_ID('agora_runtime') IS NULL
@@ -921,3 +966,16 @@ ALTER TABLE [$(TABLE_USERS)] WITH CHECK ADD CONSTRAINT [CK_$(TABLE_USERS)_EmailR
  );
 COMMIT TRANSACTION;
 GO
+IF OBJECT_ID('dbo.user_canvas_activity','U') IS NULL
+CREATE TABLE dbo.user_canvas_activity(
+ user_id int NOT NULL REFERENCES dbo.users(user_id) ON DELETE CASCADE,
+ canvas_id int NOT NULL,
+ client_key varchar(160) NOT NULL,
+ activity_date date NOT NULL,
+ created_count bigint NOT NULL DEFAULT 0,
+ updated_count bigint NOT NULL DEFAULT 0,
+ deleted_count bigint NOT NULL DEFAULT 0,
+ updated_at datetime2 NOT NULL DEFAULT SYSUTCDATETIME(),
+ CONSTRAINT PK_user_canvas_activity PRIMARY KEY(user_id,activity_date,canvas_id,client_key),
+ CONSTRAINT CK_user_canvas_activity_counts CHECK(created_count>=0 AND updated_count>=0 AND deleted_count>=0)
+);

@@ -89,7 +89,7 @@ provision_app_acl() {
     printf '>%s' "$REDIS_USER_PASS" | "$SCRIPT_DIR/redis-host-cli.sh" admin -x \
       ACL SETUSER "$REDIS_USER" reset on \
       "~${REDIS_KEY_PREFIX}*" "~${REDIS_INDEX_NAME}*" resetchannels -@all \
-      +auth +ping +role +json.get +json.set +json.arrlen +json.arrappend +json.del \
+      +auth +ping +role +json.get +json.objkeys +json.set +json.arrlen +json.arrappend +json.del \
       +get +del +exists +keys +eval +ft.search +ft.info
   else
     run_on_local_primary provision-app

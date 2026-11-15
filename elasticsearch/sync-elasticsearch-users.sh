@@ -51,6 +51,7 @@ curl_es() {
 }
 
 ES_INDEX="${ES_INDEX:-canvas}"
+ES_IRADE_WORKSPACE_INDEX="${ES_IRADE_WORKSPACE_INDEX:-workspace}"
 ES_USER="${ES_USER_NAME:-agora_user}"
 ES_LOG_INDEX="${ES_LOG_INDEX:-agora-logs}"
 ES_LOG_USER="${ES_LOG_USER_NAME:-agora_log_writer}"
@@ -64,14 +65,19 @@ fi
 
 curl_es -s -f -u "elastic:$ELASTIC_PASSWORD" "$ES_HOST/_security/_authenticate" >/dev/null
 
-canvas_role_payload="$(ES_INDEX="$ES_INDEX" ES_SEARCH_INDEX="${ES_SEARCH_INDEX:-canvas-search}" python3 - <<'PY'
+canvas_role_payload="$(ES_INDEX="$ES_INDEX" ES_IRADE_WORKSPACE_INDEX="$ES_IRADE_WORKSPACE_INDEX" ES_SEARCH_INDEX="${ES_SEARCH_INDEX:-canvas-search}" python3 - <<'PY'
 import json
 import os
 
 print(json.dumps({
     "cluster": [],
     "indices": [{
-        "names": [os.environ["ES_INDEX"], os.environ["ES_SEARCH_INDEX"], os.environ["ES_SEARCH_INDEX"] + "-*"],
+        "names": [
+            os.environ["ES_INDEX"],
+            os.environ["ES_IRADE_WORKSPACE_INDEX"],
+            os.environ["ES_SEARCH_INDEX"],
+            os.environ["ES_SEARCH_INDEX"] + "-*",
+        ],
         "privileges": ["read", "write", "view_index_metadata"],
     }],
 }))

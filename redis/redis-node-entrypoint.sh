@@ -61,7 +61,7 @@ ACL_FILE=/data/users.acl
 ACL_TEMP="${ACL_FILE}.tmp"
 {
   printf 'user default on #%s ~* &* +@all\n' "$ADMIN_HASH"
-  printf 'user %s on #%s ~%s* ~%s* resetchannels -@all +auth +ping +role +json.get +json.set +json.arrlen +json.arrappend +json.del +get +del +exists +keys +eval +ft.search +ft.info\n' \
+  printf 'user %s on #%s ~%s* ~%s* resetchannels -@all +auth +ping +role +json.get +json.objkeys +json.set +json.arrlen +json.arrappend +json.del +get +del +exists +keys +eval +ft.search +ft.info\n' \
     "$REDIS_USER" "$APP_HASH" "$REDIS_KEY_PREFIX" "$REDIS_INDEX_NAME"
 } > "$ACL_TEMP"
 chown redis:redis "$ACL_TEMP"

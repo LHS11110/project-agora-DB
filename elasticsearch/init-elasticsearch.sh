@@ -49,6 +49,7 @@ ES_SUPER_USER="elastic"
 : "${ELASTIC_PASSWORD:?ELASTIC_PASSWORD must be set in elasticsearch/.env}"
 ES_SUPER_PASS="$ELASTIC_PASSWORD"
 INDEX_NAME="${ES_INDEX:-canvas}"
+IRADE_WORKSPACE_INDEX="${ES_IRADE_WORKSPACE_INDEX:-workspace}"
 ES_USER="${ES_USER_NAME:-agora_user}"
 : "${ES_USER_PASSWORD:?ES_USER_PASSWORD must be set in elasticsearch/.env}"
 ES_USER_PASS="$ES_USER_PASSWORD"
@@ -62,8 +63,12 @@ LOG_RETENTION_POLICY="${ES_LOG_RETENTION_POLICY:-agora-logs-retention}"
 LOG_RETENTION_DAYS="${ES_LOG_RETENTION_DAYS:-90}"
 SNAPSHOT_REPOSITORY="${ES_SNAPSHOT_REPOSITORY:-agora-filesystem}"
 
-if [ "$LOG_INDEX" = "$INDEX_NAME" ]; then
-  echo "[ERROR] ES_LOG_INDEX must be different from ES_INDEX ($INDEX_NAME)." >&2
+if [ "$IRADE_WORKSPACE_INDEX" = "$INDEX_NAME" ]; then
+  echo "[ERROR] ES_IRADE_WORKSPACE_INDEX must be different from ES_INDEX ($INDEX_NAME)." >&2
+  exit 1
+fi
+if [ "$LOG_INDEX" = "$INDEX_NAME" ] || [ "$LOG_INDEX" = "$IRADE_WORKSPACE_INDEX" ]; then
+  echo "[ERROR] ES_LOG_INDEX must be different from ES_INDEX ($INDEX_NAME) and ES_IRADE_WORKSPACE_INDEX ($IRADE_WORKSPACE_INDEX)." >&2
   exit 1
 fi
 if [[ ! "$LOG_INDEX" =~ ^[a-z0-9][a-z0-9._-]*$ ]]; then
@@ -75,7 +80,7 @@ if [ "$LOG_USER" = "$ES_USER" ] || [ "$LOG_USER" = "$ES_SUPER_USER" ]; then
   exit 1
 fi
 
-echo "=== 1. Elasticsearch 역할 ($ES_ROLE) 생성 및 인덱스($INDEX_NAME) 권한 부여 ==="
+echo "=== 1. Elasticsearch 역할 ($ES_ROLE) 생성 및 인덱스($INDEX_NAME, $IRADE_WORKSPACE_INDEX) 권한 부여 ==="
 
 curl_es -s -f -u "$ES_SUPER_USER:$ES_SUPER_PASS" -X PUT "$ES_HOST/_security/role/$ES_ROLE" \
      -H 'Content-Type: application/json' \
@@ -83,7 +88,7 @@ curl_es -s -f -u "$ES_SUPER_USER:$ES_SUPER_PASS" -X PUT "$ES_HOST/_security/role
   \"cluster\": [],
   \"indices\": [
     {
-      \"names\": [ \"$INDEX_NAME\" ],
+      \"names\": [ \"$INDEX_NAME\", \"$IRADE_WORKSPACE_INDEX\", \"${ES_SEARCH_INDEX:-canvas-search}\", \"${ES_SEARCH_INDEX:-canvas-search}-*\" ],
       \"privileges\": [ \"read\", \"write\", \"view_index_metadata\" ]
     }
   ]
@@ -101,140 +106,80 @@ curl_es -s -f -u "$ES_SUPER_USER:$ES_SUPER_PASS" -X PUT "$ES_HOST/_security/user
 }"
 echo -e "\n[OK] 사용자($ES_USER) 생성 완료"
 
-echo -e "\n=== 3. Elasticsearch 인덱스 ($INDEX_NAME) 매핑 생성 ==="
+echo -e "\n=== 3. Elasticsearch 인덱스 ($INDEX_NAME, $IRADE_WORKSPACE_INDEX) 매핑 생성 ==="
 
-# 인덱스가 이미 존재하는지 확인 후 없을 때만 생성 (기존 문서가 없을 경우 최신 템플릿 적용을 위해 재생성)
-INDEX_EXISTS=$(curl_es -s -o /dev/null -w "%{http_code}" -u "$ES_SUPER_USER:$ES_SUPER_PASS" "$ES_HOST/$INDEX_NAME")
-if [ "$INDEX_EXISTS" = "200" ]; then
-  DOC_COUNT=$(curl_es -s -u "$ES_SUPER_USER:$ES_SUPER_PASS" "$ES_HOST/$INDEX_NAME/_count" | grep -o '"count":[0-9]*' | cut -d':' -f2 || echo "0")
-  if [ "$DOC_COUNT" = "0" ]; then
-    echo "인덱스($INDEX_NAME)에 저장된 데이터가 없습니다(count: 0). 최신 스키마 템플릿 적용을 위해 재생성합니다..."
-    curl_es -s -f -u "$ES_SUPER_USER:$ES_SUPER_PASS" -X DELETE "$ES_HOST/$INDEX_NAME" > /dev/null
-    INDEX_EXISTS="404"
-  else
-    echo "인덱스($INDEX_NAME)가 이미 존재하며 기존 문서가 있습니다. 최신 필드 매핑을 동기화합니다..."
-    curl_es -s -f -u "$ES_SUPER_USER:$ES_SUPER_PASS" -X PUT "$ES_HOST/$INDEX_NAME/_mapping" \
-         -H 'Content-Type: application/json' \
-         -d '{
-      "properties": {
-        "admin-user-id": {
-          "type": "long"
-        },
-        "visibility": {
-          "type": "keyword"
-        },
-        "description": {
-          "type": "text"
-        },
-        "canvas-password-hash": {
-          "type": "keyword"
-        },
-        "people": {
-          "type": "long"
+ensure_space_index() {
+  local target_index="$1"
+  local id_field="$2"
+  local name_field="$3"
+  local index_exists
+  index_exists=$(curl_es -s -o /dev/null -w "%{http_code}" -u "$ES_SUPER_USER:$ES_SUPER_PASS" "$ES_HOST/$target_index")
+  if [ "$index_exists" = "200" ]; then
+    local doc_count
+    doc_count=$(curl_es -s -u "$ES_SUPER_USER:$ES_SUPER_PASS" "$ES_HOST/$target_index/_count" | grep -o '"count":[0-9]*' | cut -d':' -f2 || echo "0")
+    if [ "$doc_count" = "0" ]; then
+      echo "인덱스($target_index)에 저장된 데이터가 없습니다(count: 0). 최신 스키마 템플릿 적용을 위해 재생성합니다..."
+      curl_es -s -f -u "$ES_SUPER_USER:$ES_SUPER_PASS" -X DELETE "$ES_HOST/$target_index" > /dev/null
+      index_exists="404"
+    else
+      echo "인덱스($target_index)가 이미 존재하며 기존 문서가 있습니다. 최신 필드 매핑을 동기화합니다..."
+      curl_es -s -f -u "$ES_SUPER_USER:$ES_SUPER_PASS" -X PUT "$ES_HOST/$target_index/_mapping" \
+           -H 'Content-Type: application/json' \
+           -d "{
+        \"properties\": {
+          \"$name_field\": { \"type\": \"text\", \"fields\": { \"keyword\": { \"type\": \"keyword\", \"ignore_above\": 256 } } },
+          \"$id_field\": { \"type\": \"long\" },
+          \"admin-user-id\": { \"type\": \"long\" },
+          \"visibility\": { \"type\": \"keyword\" },
+          \"description\": { \"type\": \"text\" },
+          \"canvas-password-hash\": { \"type\": \"keyword\" },
+          \"people\": { \"type\": \"long\" }
         }
-      }
-    }'
-    echo -e "\n[OK] 인덱스($INDEX_NAME) 매핑 동기화 완료"
+      }"
+      echo -e "\n[OK] 인덱스($target_index) 매핑 동기화 완료"
+    fi
   fi
-fi
 
-if [ "$INDEX_EXISTS" != "200" ]; then
-  curl_es -s -f -u "$ES_SUPER_USER:$ES_SUPER_PASS" -X PUT "$ES_HOST/$INDEX_NAME" \
-       -H 'Content-Type: application/json' \
-       -d '{
-    "settings": {
-      "number_of_shards": 1,
-      "number_of_replicas": 0
-    },
-    "mappings": {
-      "dynamic_templates": [
-        {
-          "inner_group_uids": {
-            "path_match": "inner-group.*",
-            "mapping": {
-              "type": "long"
-            }
-          }
-        },
-        {
-          "item_id": {
-            "path_match": "items.*.item-id",
-            "mapping": {
-              "type": "long"
-            }
-          }
-        },
-        {
-          "item_type": {
-            "path_match": "items.*.type",
-            "mapping": {
-              "type": "integer"
-            }
-          }
-        },
-        {
-          "item_pos": {
-            "path_match": "items.*.pos",
-            "mapping": {
-              "type": "float"
-            }
-          }
-        },
-        {
-          "item_permission": {
-            "path_match": "items.*.permission",
-            "mapping": {
-              "type": "keyword"
-            }
-          }
-        }
-      ],
-      "properties": {
-        "canvas-name": {
-          "type": "text",
-          "fields": {
-            "keyword": {
-              "type": "keyword",
-              "ignore_above": 256
-            }
-          }
-        },
-        "canvas-id": {
-          "type": "long"
-        },
-        "visibility": {
-          "type": "keyword"
-        },
-        "admin-user-id": {
-          "type": "long"
-        },
-        "description": {
-          "type": "text"
-        },
-        "canvas-password-hash": {
-          "type": "keyword"
-        },
-        "people": {
-          "type": "long"
-        },
-        "inner-group": {
-          "type": "object"
-        },
-        "items": {
-          "type": "object"
-        },
-        "init-group": {
-          "type": "keyword"
+  if [ "$index_exists" != "200" ]; then
+    curl_es -s -f -u "$ES_SUPER_USER:$ES_SUPER_PASS" -X PUT "$ES_HOST/$target_index" \
+         -H 'Content-Type: application/json' \
+         -d "{
+      \"settings\": {
+        \"number_of_shards\": 1,
+        \"number_of_replicas\": 0
+      },
+      \"mappings\": {
+        \"dynamic_templates\": [
+          { \"inner_group_uids\": { \"path_match\": \"inner-group.*\", \"mapping\": { \"type\": \"long\" } } },
+          { \"item_id\": { \"path_match\": \"items.*.item-id\", \"mapping\": { \"type\": \"long\" } } },
+          { \"item_type\": { \"path_match\": \"items.*.type\", \"mapping\": { \"type\": \"integer\" } } },
+          { \"item_pos\": { \"path_match\": \"items.*.pos\", \"mapping\": { \"type\": \"float\" } } },
+          { \"item_permission\": { \"path_match\": \"items.*.permission\", \"mapping\": { \"type\": \"keyword\" } } }
+        ],
+        \"properties\": {
+          \"$name_field\": { \"type\": \"text\", \"fields\": { \"keyword\": { \"type\": \"keyword\", \"ignore_above\": 256 } } },
+          \"$id_field\": { \"type\": \"long\" },
+          \"visibility\": { \"type\": \"keyword\" },
+          \"admin-user-id\": { \"type\": \"long\" },
+          \"description\": { \"type\": \"text\" },
+          \"canvas-password-hash\": { \"type\": \"keyword\" },
+          \"people\": { \"type\": \"long\" },
+          \"inner-group\": { \"type\": \"object\" },
+          \"items\": { \"type\": \"object\" },
+          \"init-group\": { \"type\": \"keyword\" }
         }
       }
-    }
-  }'
-  echo -e "\n[OK] 인덱스($INDEX_NAME) 매핑 생성 완료 (초기 데이터 미삽입)"
-fi
+    }"
+    echo -e "\n[OK] 인덱스($target_index) 매핑 생성 완료 (초기 데이터 미삽입)"
+  fi
 
-# Keep per-canvas group names in _source without expanding the cluster mapping.
-curl_es -fsS -X PUT "$ES_HOST/$INDEX_NAME/_mapping" \
-  -H 'Content-Type: application/json' -d '{"properties":{"group-permissions":{"type":"object","enabled":false},"group-bits":{"type":"object","enabled":false}}}'
+  # Keep per-space group names in _source without expanding the cluster mapping.
+  curl_es -fsS -X PUT "$ES_HOST/$target_index/_mapping" \
+    -H 'Content-Type: application/json' -d '{"properties":{"group-permissions":{"type":"object","enabled":false},"group-bits":{"type":"object","enabled":false}}}'
+}
+
+ensure_space_index "$INDEX_NAME" "canvas-id" "canvas-name"
+ensure_space_index "$IRADE_WORKSPACE_INDEX" "workspace-id" "workspace-name"
 
 echo -e "\n=== 4. 로그 전용 역할($LOG_ROLE) 생성 ==="
 curl_es -s -f -u "$ES_SUPER_USER:$ES_SUPER_PASS" -X PUT "$ES_HOST/_security/role/$LOG_ROLE" \
@@ -294,15 +239,16 @@ curl_es -s -f -u "$ES_SUPER_USER:$ES_SUPER_PASS" -X PUT "$ES_HOST/_snapshot/$SNA
      -H 'Content-Type: application/json' -d '{"type":"fs","settings":{"location":"/usr/share/elasticsearch/snapshots","compress":true}}'
 curl_es -s -f -u "$ES_SUPER_USER:$ES_SUPER_PASS" -X PUT "$ES_HOST/_slm/policy/agora-daily" \
      -H 'Content-Type: application/json' --data-binary @- <<EOF
-{"schedule":"0 30 2 * * ?","name":"<agora-snapshot-{now/d}>","repository":"${SNAPSHOT_REPOSITORY}","config":{"indices":["${INDEX_NAME}","${LOG_INDEX}-*"],"include_global_state":false,"ignore_unavailable":true},"retention":{"expire_after":"35d","min_count":7,"max_count":35}}
+{"schedule":"0 30 2 * * ?","name":"<agora-snapshot-{now/d}>","repository":"${SNAPSHOT_REPOSITORY}","config":{"indices":["${INDEX_NAME}","${IRADE_WORKSPACE_INDEX}","${LOG_INDEX}-*"],"include_global_state":false,"ignore_unavailable":true},"retention":{"expire_after":"35d","min_count":7,"max_count":35}}
 EOF
 echo "[OK] 매일 UTC 02:30 snapshot, 최대 35개/35일 보존 정책 구성 완료."
 
-echo -e "\n=== 8. 신규 사용자($ES_USER) 인증 및 인덱스($INDEX_NAME) 메타데이터 접근 검증 ==="
+echo -e "\n=== 8. 신규 사용자($ES_USER) 인증 및 인덱스($INDEX_NAME, $IRADE_WORKSPACE_INDEX) 메타데이터 접근 검증 ==="
 curl_es -s -f -u "$ES_USER:$ES_USER_PASS" -X GET "$ES_HOST/$INDEX_NAME?pretty" | head -n 15
+curl_es -s -f -u "$ES_USER:$ES_USER_PASS" -X GET "$ES_HOST/$IRADE_WORKSPACE_INDEX?pretty" | head -n 15
 echo ""
 
-echo -e "\n[SUCCESS] 캔버스 인덱스($INDEX_NAME)와 로그 인덱스($LOG_INDEX), 각 전용 사용자의 초기화가 완료되었습니다."
+echo -e "\n[SUCCESS] 캔버스 인덱스($INDEX_NAME), 워크스페이스 인덱스($IRADE_WORKSPACE_INDEX) 및 로그 인덱스($LOG_INDEX) 초기화가 완료되었습니다."
 
 # Search metadata has its own schema and alias; preserve the original snapshot index.
 bash "$SCRIPT_DIR/init-search-index.sh"

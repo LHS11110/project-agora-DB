@@ -40,7 +40,7 @@ exec docker exec "$CONTAINER" /bin/sh -c '
       printf ">%s" "$REDIS_USER_PASSWORD" | REDISCLI_AUTH="$REDIS_PASSWORD" redis_cli "$@" -x \
         ACL SETUSER "${REDIS_USER:-agora_user}" reset on \
         "~${REDIS_KEY_PREFIX:-canvas:}*" "~${REDIS_INDEX_NAME:-idx:canvas}*" resetchannels -@all \
-        +auth +ping +role +json.get +json.set +json.arrlen +json.arrappend +json.del \
+        +auth +ping +role +json.get +json.objkeys +json.set +json.arrlen +json.arrappend +json.del \
         +get +del +exists +keys +eval +ft.search +ft.info
       ;;
     *)
