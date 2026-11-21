@@ -416,4 +416,6 @@ python3 -m unittest discover -s tests -p test_local_runtime.py
 
 ORCID 전용 계정에는 `mssql/migrations/2026-11-13-orcid-account-constraints.sql`도 필수입니다. 기존 인증·이메일 필수 CHECK를 ORCID 식별자와 공식 issuer가 있는 계정에 맞게 갱신하며, 일반 계정의 기존 필수 조건은 유지합니다. `init-mssql.sql`에 같은 규칙과 재실행 보호를 포함했습니다.
 
+`mssql/migrations/2026-11-21-auth-sessions.sql`은 서버 측 로그인 세션 테이블 `auth_sessions`를 추가하는 additive 마이그레이션이며 `init-mssql.sql`에도 포함했습니다. refresh 비밀값은 SHA-256 해시로만 저장합니다. 이 Spring 버전을 배포하기 전에 적용해야 하며, 배포 후 기존 로그인 토큰은 무효가 되어 사용자가 한 번 다시 로그인합니다.
+
 실제 SQL Server 회귀 검증: `python3 mssql/tests/test-irade-orcid-constraints.py`. 기존 제약 조건으로 실패를 재현한 뒤 수정, 일반 계정 무결성, ORCID 중복·issuer 분리, 탈퇴 후 재가입과 초기화 업그레이드 블록 재실행을 검증합니다. 독립된 임시 DB를 생성하고 삭제하며 운영 사용자 데이터를 사용하지 않습니다.
