@@ -419,3 +419,7 @@ ORCID 전용 계정에는 `mssql/migrations/2026-11-13-orcid-account-constraints
 `mssql/migrations/2026-11-21-auth-sessions.sql`은 서버 측 로그인 세션 테이블 `auth_sessions`를 추가하는 additive 마이그레이션이며 `init-mssql.sql`에도 포함했습니다. refresh 비밀값은 SHA-256 해시로만 저장합니다. 이 Spring 버전을 배포하기 전에 적용해야 하며, 배포 후 기존 로그인 토큰은 무효가 되어 사용자가 한 번 다시 로그인합니다.
 
 실제 SQL Server 회귀 검증: `python3 mssql/tests/test-irade-orcid-constraints.py`. 기존 제약 조건으로 실패를 재현한 뒤 수정, 일반 계정 무결성, ORCID 중복·issuer 분리, 탈퇴 후 재가입과 초기화 업그레이드 블록 재실행을 검증합니다. 독립된 임시 DB를 생성하고 삭제하며 운영 사용자 데이터를 사용하지 않습니다.
+
+### AI 에이전트 이용약관
+
+`mssql/migrations/2026-11-23-agent-terms.sql`은 로컬 에이전트 약관 원문과 계정별 버전, 동의 여부, 마지막 처리 시각을 저장하는 테이블을 추가합니다. 약관 변경 시 새 버전의 원문을 별도 행으로 추가하고 현재 버전에 대한 동의를 다시 받습니다. 기존 브라우저에 저장되었던 동의는 서버 기록으로 가져오지 않습니다. Spring 및 C++ 에이전트 요청 경로를 배포하기 전에 이 마이그레이션을 적용합니다.
